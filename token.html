@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Token Counter</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #000;
+            color: #fff;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 800px;
+            background: #111;
+            border: 2px solid #333;
+        }
+
+        .header {
+            padding: 30px;
+            border-bottom: 2px solid #333;
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 600;
+            letter-spacing: -0.5px;
+        }
+
+        .input-section {
+            padding: 30px;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 200px;
+            background: #000;
+            border: 2px solid #333;
+            color: #fff;
+            font-size: 16px;
+            padding: 20px;
+            resize: vertical;
+            font-family: 'Courier New', monospace;
+            transition: border-color 0.2s;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #fff;
+        }
+
+        textarea::placeholder {
+            color: #666;
+        }
+
+        .stats {
+            padding: 30px;
+            border-top: 2px solid #333;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 30px;
+        }
+
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #888;
+        }
+
+        .stat-value {
+            font-size: 36px;
+            font-weight: 700;
+            letter-spacing: -1px;
+        }
+
+        .footer {
+            padding: 20px 30px;
+            border-top: 2px solid #333;
+            font-size: 12px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Token Counter</h1>
+        </div>
+        
+        <div class="input-section">
+            <textarea id="textInput" placeholder="テキストを入力してください..."></textarea>
+        </div>
+        
+        <div class="stats">
+            <div class="stat-item">
+                <div class="stat-label">Tokens</div>
+                <div class="stat-value" id="tokenCount">0K</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Characters</div>
+                <div class="stat-value" id="charCount">0K</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Words</div>
+                <div class="stat-value" id="wordCount">0K</div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            推定トークン数は文字数の約0.75倍で計算されています
+        </div>
+    </div>
+
+    <script>
+        const textInput = document.getElementById('textInput');
+        const tokenCount = document.getElementById('tokenCount');
+        const charCount = document.getElementById('charCount');
+        const wordCount = document.getElementById('wordCount');
+
+        function formatToK(num) {
+            if (num === 0) return '0K';
+            const k = num / 1000;
+            return k.toFixed(1) + 'K';
+        }
+
+        function estimateTokens(text) {
+            // 簡易的なトークン推定: 英語は約0.75、日本語は約1文字1トークン
+            const chars = text.length;
+            return Math.ceil(chars * 0.75);
+        }
+
+        function countWords(text) {
+            // 空白で分割して単語数をカウント
+            const trimmed = text.trim();
+            if (trimmed === '') return 0;
+            return trimmed.split(/\s+/).length;
+        }
+
+        function updateCounts() {
+            const text = textInput.value;
+            
+            const tokens = estimateTokens(text);
+            const chars = text.length;
+            const words = countWords(text);
+            
+            tokenCount.textContent = formatToK(tokens);
+            charCount.textContent = formatToK(chars);
+            wordCount.textContent = formatToK(words);
+        }
+
+        textInput.addEventListener('input', updateCounts);
+    </script>
+</body>
+</html>
