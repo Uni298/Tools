@@ -1,0 +1,281 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-sans)}
+.wrap{padding:1.5rem 1rem;max-width:680px;margin:0 auto}
+h2{font-size:18px;font-weight:500;color:var(--color-text-primary);margin-bottom:4px}
+.sub{font-size:13px;color:var(--color-text-secondary);margin-bottom:1.5rem}
+.row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:1.25rem}
+label{font-size:13px;color:var(--color-text-secondary);display:block;margin-bottom:6px}
+select{padding:8px 12px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);background:var(--color-background-primary);color:var(--color-text-primary);font-size:14px;min-width:120px;cursor:pointer}
+select:focus{outline:none;border-color:var(--color-border-primary)}
+.note-grid{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:1.5rem}
+.note-btn{padding:8px 14px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);background:var(--color-background-primary);color:var(--color-text-primary);font-size:14px;cursor:pointer;transition:all .15s}
+.note-btn:hover{background:var(--color-background-secondary);border-color:var(--color-border-secondary)}
+.note-btn.active{background:#CECBF6;border-color:#7F77DD;color:#3C3489}
+.section-title{font-size:13px;font-weight:500;color:var(--color-text-secondary);letter-spacing:.04em;text-transform:uppercase;margin-bottom:10px;margin-top:1.5rem}
+.chord-list{display:flex;flex-direction:column;gap:8px}
+.chord-card{display:flex;align-items:center;gap:12px;padding:12px 14px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);background:var(--color-background-primary);cursor:pointer;transition:border-color .15s}
+.chord-card:hover{border-color:var(--color-border-secondary)}
+.chord-card.tonic{border-left:3px solid #534AB7}
+.chord-card.subdominant{border-left:3px solid #1D9E75}
+.chord-card.dominant{border-left:3px solid #D85A30}
+.chord-name{font-size:16px;font-weight:500;color:var(--color-text-primary);min-width:54px}
+.chord-notes{font-size:12px;color:var(--color-text-secondary);flex:1}
+.chord-tags{display:flex;gap:6px;flex-wrap:wrap}
+.tag{font-size:11px;padding:2px 8px;border-radius:20px;font-weight:500}
+.tag.tonic{background:#EEEDFE;color:#3C3489}
+.tag.subdominant{background:#E1F5EE;color:#085041}
+.tag.dominant{background:#FAECE7;color:#993C1D}
+.tag.contains{background:#E6F1FB;color:#0C447C}
+.tag.partial{background:#F1EFE8;color:#444441}
+.play-btn{width:32px;height:32px;border:0.5px solid var(--color-border-tertiary);border-radius:50%;background:var(--color-background-secondary);color:var(--color-text-secondary);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s}
+.play-btn:hover{background:#EEEDFE;border-color:#7F77DD;color:#534AB7}
+.play-btn.playing{background:#EEEDFE;border-color:#7F77DD;color:#534AB7}
+.legend{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:1rem}
+.legend-item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--color-text-secondary)}
+.legend-dot{width:10px;height:10px;border-radius:2px}
+.empty{color:var(--color-text-tertiary);font-size:14px;padding:1.5rem 0;text-align:center}
+</style>
+
+<div class="wrap">
+  <h2 class="sr-only">メロディー音から和音を提案するツール</h2>
+  <h2>メロディーから和音を探す</h2>
+  <p class="sub">キーとメロディーの音を選ぶと、使いやすいコードを提案します</p>
+
+  <div class="row">
+    <div>
+      <label>キー (Key)</label>
+      <select id="keySelect">
+        <option>C</option><option>C#/D♭</option><option>D</option><option>D#/E♭</option>
+        <option>E</option><option>F</option><option>F#/G♭</option><option>G</option>
+        <option>G#/A♭</option><option>A</option><option>A#/B♭</option><option>B</option>
+      </select>
+    </div>
+    <div>
+      <label>メジャー / マイナー</label>
+      <select id="modeSelect">
+        <option value="major">メジャー</option>
+        <option value="minor">マイナー</option>
+      </select>
+    </div>
+  </div>
+
+  <label>メロディーの音</label>
+  <div class="note-grid" id="noteGrid"></div>
+
+  <div id="resultsArea"></div>
+</div>
+
+<script>
+const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const NOTE_DISPLAY = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+
+const SCALE_INTERVALS = {
+  major: [0,2,4,5,7,9,11],
+  minor: [0,2,3,5,7,8,10]
+};
+
+const CHORD_DEFS_MAJOR = [
+  {degree:1, quality:'maj', name:'I',    fn:'tonic',       steps:[0,4,7]},
+  {degree:2, quality:'min', name:'ii',   fn:'subdominant', steps:[0,3,7]},
+  {degree:3, quality:'min', name:'iii',  fn:'tonic',       steps:[0,3,7]},
+  {degree:4, quality:'maj', name:'IV',   fn:'subdominant', steps:[0,4,7]},
+  {degree:5, quality:'maj', name:'V',    fn:'dominant',    steps:[0,4,7]},
+  {degree:5, quality:'dom7',name:'V7',   fn:'dominant',    steps:[0,4,7,10]},
+  {degree:6, quality:'min', name:'vi',   fn:'tonic',       steps:[0,3,7]},
+  {degree:7, quality:'dim', name:'vii°', fn:'dominant',    steps:[0,3,6]},
+];
+
+const CHORD_DEFS_MINOR = [
+  {degree:1, quality:'min', name:'i',    fn:'tonic',       steps:[0,3,7]},
+  {degree:2, quality:'dim', name:'ii°',  fn:'subdominant', steps:[0,3,6]},
+  {degree:3, quality:'maj', name:'III',  fn:'tonic',       steps:[0,4,7]},
+  {degree:4, quality:'min', name:'iv',   fn:'subdominant', steps:[0,3,7]},
+  {degree:5, quality:'maj', name:'V',    fn:'dominant',    steps:[0,4,7]},
+  {degree:5, quality:'dom7',name:'V7',   fn:'dominant',    steps:[0,4,7,10]},
+  {degree:6, quality:'maj', name:'VI',   fn:'subdominant', steps:[0,4,7]},
+  {degree:7, quality:'maj', name:'VII',  fn:'dominant',    steps:[0,4,7]},
+  {degree:7, quality:'dim', name:'vii°', fn:'dominant',    steps:[0,3,6]},
+];
+
+const FN_LABEL = {tonic:'トニック', subdominant:'サブドミナント', dominant:'ドミナント'};
+
+let selectedNote = null;
+let audioCtx = null;
+let activeOscs = [];
+
+function getAudioCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+
+function noteToFreq(noteIdx, octave=4) {
+  return 440 * Math.pow(2, (noteIdx - 9 + (octave-4)*12) / 12);
+}
+
+function stopAll() {
+  activeOscs.forEach(o => { try{o.stop(0)}catch(e){} });
+  activeOscs = [];
+  document.querySelectorAll('.play-btn').forEach(b => b.classList.remove('playing'));
+}
+
+function playSawtooth(noteIndices, btn) {
+  stopAll();
+  const ctx = getAudioCtx();
+  if (btn) btn.classList.add('playing');
+  noteIndices.forEach((ni, i) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.value = noteToFreq(ni % 12, 4);
+    gain.gain.setValueAtTime(0, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.13, ctx.currentTime + 0.02);
+    gain.gain.linearRampToValueAtTime(0.10, ctx.currentTime + 0.4);
+    gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 1.4);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 1.5);
+    activeOscs.push(osc);
+  });
+  setTimeout(() => { if(btn) btn.classList.remove('playing'); }, 1500);
+}
+
+function playMelodyNote(noteIdx) {
+  const ctx = getAudioCtx();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = 'sawtooth';
+  osc.frequency.value = noteToFreq(noteIdx, 5);
+  gain.gain.setValueAtTime(0, ctx.currentTime);
+  gain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + 0.01);
+  gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.6);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(ctx.currentTime);
+  osc.stop(ctx.currentTime + 0.65);
+}
+
+function buildNoteGrid() {
+  const grid = document.getElementById('noteGrid');
+  grid.innerHTML = '';
+  NOTE_DISPLAY.forEach((n, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'note-btn';
+    btn.textContent = n;
+    btn.dataset.idx = i;
+    btn.onclick = () => {
+      document.querySelectorAll('.note-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      selectedNote = i;
+      playMelodyNote(i);
+      renderChords();
+    };
+    grid.appendChild(btn);
+  });
+}
+
+function getChordNotes(rootNote, steps) {
+  return steps.map(s => (rootNote + s) % 12);
+}
+
+function getChordDisplayName(rootNote, quality) {
+  const base = NOTE_DISPLAY[rootNote];
+  if (quality === 'maj') return base;
+  if (quality === 'min') return base + 'm';
+  if (quality === 'dim') return base + '°';
+  if (quality === 'dom7') return base + '7';
+  return base;
+}
+
+function renderChords() {
+  const area = document.getElementById('resultsArea');
+  if (selectedNote === null) { area.innerHTML = ''; return; }
+
+  const keyIdx = NOTE_NAMES.indexOf(
+    document.getElementById('keySelect').value.split('/')[0]
+  );
+  const mode = document.getElementById('modeSelect').value;
+  const scaleIntervals = SCALE_INTERVALS[mode];
+  const chordDefs = mode === 'major' ? CHORD_DEFS_MAJOR : CHORD_DEFS_MINOR;
+
+  const scaleNotes = scaleIntervals.map(i => (keyIdx + i) % 12);
+  const melodyInScale = scaleNotes.includes(selectedNote);
+
+  const chords = chordDefs.map(def => {
+    const degreeIdx = scaleIntervals[def.degree - 1];
+    const rootNote = (keyIdx + degreeIdx) % 12;
+    const chordNotes = getChordNotes(rootNote, def.steps);
+    const containsMelody = chordNotes.includes(selectedNote);
+    const chordDisplayName = getChordDisplayName(rootNote, def.quality);
+    const chordNoteNames = chordNotes.map(n => NOTE_DISPLAY[n]).join(' - ');
+    return { ...def, rootNote, chordNotes, containsMelody, chordDisplayName, chordNoteNames };
+  });
+
+  const contained = chords.filter(c => c.containsMelody);
+  const notContained = chords.filter(c => !c.containsMelody);
+
+  let html = `
+    <div class="legend">
+      <div class="legend-item"><span class="legend-dot" style="background:#534AB7;border-radius:2px"></span>トニック (T)</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#1D9E75;border-radius:2px"></span>サブドミナント (SD)</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#D85A30;border-radius:2px"></span>ドミナント (D)</div>
+    </div>`;
+
+  html += `<div class="section-title">構成音に含まれるコード (推奨)</div>`;
+  if (contained.length === 0) {
+    html += `<div class="empty">構成音に含まれるコードはありません</div>`;
+  } else {
+    html += `<div class="chord-list">`;
+    contained.forEach((c, idx) => {
+      html += chordCardHTML(c, `c_${idx}`);
+    });
+    html += `</div>`;
+  }
+
+  html += `<div class="section-title" style="margin-top:1.25rem">構成音に含まれないコード (テンションとして使用可)</div>`;
+  if (notContained.length === 0) {
+    html += `<div class="empty">—</div>`;
+  } else {
+    html += `<div class="chord-list">`;
+    notContained.forEach((c, idx) => {
+      html += chordCardHTML(c, `nc_${idx}`);
+    });
+    html += `</div>`;
+  }
+
+  area.innerHTML = html;
+
+  area.querySelectorAll('.play-btn').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const notes = JSON.parse(btn.dataset.notes);
+      playSawtooth(notes, btn);
+    };
+  });
+}
+
+function chordCardHTML(c, id) {
+  const tags = [];
+  tags.push(`<span class="tag ${c.fn}">${FN_LABEL[c.fn]}</span>`);
+  if (c.containsMelody) {
+    tags.push(`<span class="tag contains">構成音に含む</span>`);
+  } else {
+    tags.push(`<span class="tag partial">テンション</span>`);
+  }
+  const notesJson = JSON.stringify(c.chordNotes);
+  return `
+    <div class="chord-card ${c.fn}">
+      <button class="play-btn" data-notes='${notesJson}' title="試聴">▶</button>
+      <span class="chord-name">${c.chordDisplayName}</span>
+      <span class="chord-notes">${c.name} &nbsp;·&nbsp; ${c.chordNoteNames}</span>
+      <div class="chord-tags">${tags.join('')}</div>
+    </div>`;
+}
+
+buildNoteGrid();
+
+document.getElementById('keySelect').addEventListener('change', () => { if(selectedNote!==null) renderChords(); });
+document.getElementById('modeSelect').addEventListener('change', () => { if(selectedNote!==null) renderChords(); });
+</script>
