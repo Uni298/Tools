@@ -1,0 +1,1081 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>SFZ Player</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root{
+    --bg-0:#14110f;
+    --bg-1:#1c1815;
+    --bg-2:#242019;
+    --line:#3a332a;
+    --ink:#ece5d8;
+    --ink-dim:#a89c88;
+    --brass:#c8963e;
+    --brass-dim:#8a6a35;
+    --red:#a8442f;
+    --green:#5f8a5a;
+    --shadow: 0 12px 30px rgba(0,0,0,.5);
+  }
+  *{
+    box-sizing:border-box;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    user-select: none;
+    touch-action: manipulation;
+  }
+  html,body{
+    height:100%; margin:0;
+    background:
+      radial-gradient(1200px 800px at 15% -10%, #241f19 0%, transparent 60%),
+      var(--bg-0);
+    color:var(--ink);
+    font-family: ui-serif, Georgia, "Hiragino Mincho ProN", serif;
+    overflow:hidden;
+    touch-action: none;
+    user-select:none;
+  }
+  #app{
+    position:relative;
+    width:100%; height:100%;
+  }
+
+  /* ---------- Header / control deck ---------- */
+  header{
+    position:relative;
+    padding:22px clamp(16px,4vw,40px) 14px;
+    border-bottom:1px solid var(--line);
+  }
+  h1{
+    font-size:clamp(20px,2.6vw,30px);
+    font-weight:600;
+    letter-spacing:.02em;
+    margin:0 0 4px;
+    color:var(--ink);
+  }
+  h1 span{color:var(--brass);}
+  .sub{
+    font-family: ui-sans-serif, -apple-system, "Hiragino Kaku Gothic ProN", sans-serif;
+    font-size:12.5px;
+    color:var(--ink-dim);
+    margin:0 0 16px;
+    line-height:1.6;
+  }
+  .deck{
+    display:flex;
+    flex-wrap:wrap;
+    gap:10px;
+    align-items:center;
+    font-family: ui-sans-serif, -apple-system, "Hiragino Kaku Gothic ProN", sans-serif;
+  }
+  .btn{
+    appearance:none; border:1px solid var(--line);
+    background:linear-gradient(180deg,var(--bg-2),var(--bg-1));
+    color:var(--ink);
+    padding:9px 16px;
+    border-radius:3px;
+    font-size:13px;
+    cursor:pointer;
+    letter-spacing:.02em;
+    transition: border-color .15s, color .15s;
+  }
+  .btn:hover{border-color:var(--brass-dim); color:var(--brass);}
+  .btn:active{transform: translateY(1px);}
+  .btn.primary{border-color:var(--brass-dim); color:var(--brass);}
+  input[type=file]{ display:none; }
+  select{
+    appearance:none;
+    background:var(--bg-2);
+    border:1px solid var(--line);
+    color:var(--ink);
+    padding:9px 14px;
+    border-radius:3px;
+    font-size:13px;
+    min-width:180px;
+    max-width:340px;
+  }
+  .status{
+    font-size:12px;
+    color:var(--ink-dim);
+    margin-left:auto;
+    white-space:nowrap;
+  }
+  .status.err{color:#d97757;}
+  .status.ok{color:var(--green);}
+
+  #meter-wrap{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-family: ui-sans-serif, -apple-system, sans-serif;
+    font-size:10.5px;
+    color:var(--ink-dim);
+    letter-spacing:.06em;
+  }
+  #meter{
+    width:110px;
+    height:8px;
+    border:1px solid var(--line);
+    border-radius:2px;
+    background:var(--bg-2);
+    overflow:hidden;
+    position:relative;
+  }
+  #meter-fill{
+    position:absolute;
+    left:0; top:0; bottom:0;
+    width:0%;
+    background:linear-gradient(90deg, var(--green) 0%, var(--brass) 70%, var(--red) 100%);
+    transition:width .05s linear;
+  }
+  #meter-peak{
+    position:absolute;
+    top:0; bottom:0;
+    width:2px;
+    background:var(--ink);
+    left:0;
+    transition:left .05s linear;
+  }
+
+  /* ---------- Floating keyboard panel ---------- */
+  #panel{
+    position:absolute;
+    left:6%; top:58%;
+    width:min(880px, 88vw);
+    height:220px;
+    min-width:360px;
+    min-height:140px;
+    background:linear-gradient(180deg, var(--bg-2), var(--bg-1));
+    border:1px solid var(--line);
+    border-radius:8px;
+    box-shadow: var(--shadow);
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+  }
+  #panel-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:0 10px;
+    height:34px;
+    background:var(--bg-1);
+    border-bottom:1px solid var(--line);
+    cursor:grab;
+    touch-action:none;
+    font-family: ui-sans-serif, -apple-system, sans-serif;
+    font-size:11px;
+    color:var(--ink-dim);
+    letter-spacing:.08em;
+  }
+  #panel-head:active{cursor:grabbing;}
+  #panel-head .grip{
+    display:flex; gap:4px;
+  }
+  #panel-head .grip i{
+    width:3px;height:3px;border-radius:50%;background:var(--ink-dim);
+  }
+  .oct-controls{
+    display:flex; align-items:center; gap:8px;
+  }
+  .oct-btn{
+    width:24px;height:22px;
+    border:1px solid var(--line);
+    background:var(--bg-2);
+    color:var(--brass);
+    border-radius:3px;
+    font-size:13px;
+    line-height:1;
+    cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .oct-label{
+    font-variant-numeric: tabular-nums;
+    min-width:34px; text-align:center;
+    color:var(--ink);
+  }
+
+  #keys-wrap{
+    flex:1;
+    padding:10px;
+    display:flex;
+  }
+  #keyboard{
+    position:relative;
+    flex:1;
+    display:flex;
+  }
+  #keyboard, .wkey, .bkey, #panel-head, #resize{
+    touch-action: none;
+  }
+  .wkey{
+    position:relative;
+    flex:1;
+    background: linear-gradient(180deg,#f3ecdd,#e7dcc4);
+    border:1px solid #8c8065;
+    border-radius:0 0 4px 4px;
+    margin-right:2px;
+    box-shadow: inset 0 -3px 4px rgba(0,0,0,.12);
+  }
+  .wkey:last-child{margin-right:0;}
+  .wkey.active{
+    background: linear-gradient(180deg,#d8c99e,#c9b783);
+  }
+  .wkey .lbl{
+    position:absolute; bottom:6px; left:0; right:0; text-align:center;
+    font-family: ui-sans-serif, -apple-system, sans-serif;
+    font-size:10px; color:#8c7c58; pointer-events:none;
+  }
+  .bkey{
+    position:absolute;
+    top:0;
+    width:60%;
+    height:60%;
+    background:linear-gradient(180deg,#2a2521,#0f0d0b);
+    border:1px solid #000;
+    border-radius:0 0 3px 3px;
+    z-index:2;
+    box-shadow: 0 3px 4px rgba(0,0,0,.5);
+  }
+  .bkey.active{
+    background:linear-gradient(180deg,var(--brass),#7a5a25);
+  }
+
+  #resize{
+    position:absolute; right:0; bottom:0;
+    width:22px;height:22px;
+    cursor:nwse-resize;
+    touch-action:none;
+  }
+  #resize svg{opacity:.5;}
+
+  #hint{
+    position:absolute;
+    left:6%; top: calc(58% - 34px);
+    font-family: ui-sans-serif, -apple-system, sans-serif;
+    font-size:11.5px;
+    color:var(--ink-dim);
+    max-width:400px;
+  }
+
+  @media (max-width:640px){
+    #panel{ left:4%; width:92vw; height:190px; }
+    #hint{ left:4%; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>SFZ<span>/SF2</span> Player</h1>
+    <p class="sub">SFZまたはSF2音源のZIP、あるいはSF2ファイル単体をアップロードして鍵盤で演奏できます。鍵盤はドラッグで移動、右下の角でサイズ変更ができます。</p>
+    <div class="deck">
+      <label class="btn primary" for="zipInput">ファイルを開く</label>
+      <input type="file" id="zipInput" accept=".zip,.sf2">
+      <select id="sfzSelect" disabled>
+        <option>まずファイルを読み込んでください</option>
+      </select>
+      <select id="presetSelect" disabled style="display:none;">
+        <option>プリセット</option>
+      </select>
+      <button class="btn" id="reloadBtn" disabled>読み込む</button>
+      <div id="meter-wrap">
+        <span>LEVEL</span>
+        <div id="meter"><div id="meter-fill"></div><div id="meter-peak"></div></div>
+      </div>
+      <span class="status" id="status">待機中</span>
+    </div>
+  </header>
+
+  <div id="hint">Aキー〜 = 白鍵 / Wキー等 = 黒鍵（PCのみ）　Z / X でオクターブ切替</div>
+
+  <div id="panel">
+    <div id="panel-head">
+      <span>KEYBOARD — ドラッグで移動</span>
+      <div class="oct-controls">
+        <div class="oct-btn" id="octDown">−</div>
+        <div class="oct-label" id="octLabel">C3</div>
+        <div class="oct-btn" id="octUp">+</div>
+      </div>
+    </div>
+    <div id="keys-wrap">
+      <div id="keyboard"></div>
+    </div>
+    <div id="resize">
+      <svg width="22" height="22" viewBox="0 0 22 22"><path d="M20 4 L4 20 M20 11 L11 20 M20 18 L18 20" stroke="#c8963e" stroke-width="1.4" fill="none"/></svg>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------------- Audio ----------------
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  const actx = new AudioCtx();
+  const masterGain = actx.createGain();
+  masterGain.gain.value = 0.9;
+  const analyser = actx.createAnalyser();
+  analyser.fftSize = 512;
+  analyser.smoothingTimeConstant = 0.6;
+  masterGain.connect(analyser);
+  masterGain.connect(actx.destination);
+  const meterData = new Float32Array(analyser.fftSize);
+
+  function unlockAudio(){
+    if(actx.state === 'suspended') actx.resume();
+  }
+  ['pointerdown','touchstart','click','keydown'].forEach(ev=>{
+    document.addEventListener(ev, unlockAudio, {once:false, passive:true});
+  });
+
+  // Prevent iOS double-tap-to-zoom and pinch gestures anywhere in the app.
+  let lastTouchEnd = 0;
+  document.addEventListener('touchend', (e)=>{
+    const now = Date.now();
+    if(now - lastTouchEnd <= 350) e.preventDefault();
+    lastTouchEnd = now;
+  }, {passive:false});
+  document.addEventListener('gesturestart', (e)=> e.preventDefault());
+  document.addEventListener('dblclick', (e)=> e.preventDefault());
+
+  // ---------------- State ----------------
+  let zip = null;
+  let zipEntriesLower = {}; // lowercase path -> entry (JSZip entry OR {direct:true, file:File})
+  let regions = [];         // currently playable regions (unified sfz/sf2 shape)
+  let sampleCache = {};     // cache key -> decoded/decoded-raw AudioBuffer (promise)
+  let voices = {};          // note -> {source, gain}
+  let baseOctave = 3;       // C of leftmost white key => baseOctave*? (we use MIDI note directly)
+  let sf2Data = null;       // parsed sf2 structure for the currently loaded sf2 file
+  let sf2Presets = [];      // [{name,bank,program,regions}]
+
+  const statusEl = document.getElementById('status');
+  const sfzSelect = document.getElementById('sfzSelect');
+  const presetSelect = document.getElementById('presetSelect');
+  const reloadBtn = document.getElementById('reloadBtn');
+  const octLabel = document.getElementById('octLabel');
+
+  // Uniform entry reading: works for JSZip entries and direct (non-zipped) File uploads.
+  async function entryArrayBuffer(entry){
+    if(entry.direct) return await entry.file.arrayBuffer();
+    return await entry.async('arraybuffer');
+  }
+  async function entryText(entry){
+    if(entry.direct) return new TextDecoder('utf-8').decode(await entry.file.arrayBuffer());
+    return await entry.async('text');
+  }
+
+  function setStatus(msg, cls){
+    statusEl.textContent = msg;
+    statusEl.className = 'status' + (cls ? ' '+cls : '');
+  }
+
+  // ---------------- File / ZIP handling ----------------
+  document.getElementById('zipInput').addEventListener('change', async (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const lowerName = file.name.toLowerCase();
+    try{
+      let instrumentFiles = [];
+      if(lowerName.endsWith('.zip')){
+        setStatus('ZIPを解析中…');
+        zip = await JSZip.loadAsync(file);
+        zipEntriesLower = {};
+        zip.forEach((relPath, entry)=>{
+          if(entry.dir) return;
+          zipEntriesLower[relPath.toLowerCase()] = entry;
+          const lp = relPath.toLowerCase();
+          if(lp.endsWith('.sfz') || lp.endsWith('.sf2')) instrumentFiles.push(relPath);
+        });
+      } else if(lowerName.endsWith('.sf2')){
+        zip = null;
+        zipEntriesLower = {};
+        zipEntriesLower[lowerName] = {direct:true, file};
+        instrumentFiles = [file.name];
+      } else {
+        setStatus('ZIPまたはSF2ファイルを選んでください', 'err');
+        return;
+      }
+
+      if(instrumentFiles.length === 0){
+        setStatus('sfz/sf2ファイルが見つかりません', 'err');
+        return;
+      }
+      sfzSelect.innerHTML = '';
+      instrumentFiles.forEach(p=>{
+        const opt = document.createElement('option');
+        opt.value = p; opt.textContent = p;
+        sfzSelect.appendChild(opt);
+      });
+      sfzSelect.disabled = false;
+      reloadBtn.disabled = false;
+      setStatus(`${instrumentFiles.length}件の音源を検出`, 'ok');
+      await loadInstrumentFile(instrumentFiles[0]);
+    }catch(err){
+      console.error(err);
+      setStatus('読み込みに失敗: '+err.message, 'err');
+    }
+  });
+
+  reloadBtn.addEventListener('click', ()=>{
+    if(sfzSelect.value) loadInstrumentFile(sfzSelect.value);
+  });
+  sfzSelect.addEventListener('change', ()=>{
+    if(sfzSelect.value) loadInstrumentFile(sfzSelect.value);
+  });
+  presetSelect.addEventListener('change', ()=>{
+    const idx = parseInt(presetSelect.value,10);
+    if(sf2Presets[idx]){
+      regions = sf2Presets[idx].regions;
+      setStatus(`プリセット「${sf2Presets[idx].name}」(${regions.length}リージョン)`, 'ok');
+    }
+  });
+
+  async function loadInstrumentFile(path){
+    const lp = path.toLowerCase();
+    if(lp.endsWith('.sf2')){
+      presetSelect.style.display = '';
+      await loadSf2(path);
+    } else {
+      presetSelect.style.display = 'none';
+      presetSelect.disabled = true;
+      await loadSfz(path);
+    }
+  }
+
+  // ---------------- SFZ parsing ----------------
+  const noteNameToNum = (()=> {
+    const map = {c:0,d:2,e:4,f:5,g:7,a:9,b:11};
+    return function(str){
+      // e.g. c4, cs4, c#4, Db3
+      const m = /^([a-gA-G])([#sSb]?)(-?\d+)$/.exec(str.trim());
+      if(!m) return null;
+      let n = map[m[1].toLowerCase()];
+      if(m[2] === '#' || m[2] === 's' || m[2] === 'S') n += 1;
+      if(m[2] === 'b') n -= 1;
+      const octave = parseInt(m[3],10);
+      // sfz/MIDI standard: C4 = 60 (some use C3=60; we use common C4=60/ -1 offset convention: MIDI 0 = C-1)
+      return (octave+1)*12 + n;
+    };
+  })();
+
+  function parseKeyVal(v){
+    if(v === undefined || v === null) return null;
+    v = v.trim();
+    if(/^-?\d+$/.test(v)) return parseInt(v,10);
+    const n = noteNameToNum(v);
+    return n;
+  }
+
+  async function loadSfz(path){
+    setStatus('sfzを解析中…');
+    try{
+      const entry = zipEntriesLower[path.toLowerCase()];
+      if(!entry) throw new Error('sfzが見つかりません');
+      const text = await entryText(entry);
+      const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')+1) : '';
+
+      // tokenize: strip comments, split into <tag> and key=value tokens
+      const cleaned = text.replace(/\/\/[^\n]*/g,'\n');
+      const tokenRe = /<([a-zA-Z]+)>|(\S+?)=("[^"]*"|\S+)/g;
+      let match;
+      let currentTag = null;
+      let groupDefaults = {};
+      let region = null;
+      const parsedRegions = [];
+
+      while((match = tokenRe.exec(cleaned)) !== null){
+        if(match[1]){
+          // new tag
+          if(currentTag === 'region' && region){
+            parsedRegions.push(region);
+          }
+          currentTag = match[1].toLowerCase();
+          if(currentTag === 'group'){
+            groupDefaults = {};
+            region = null;
+          } else if(currentTag === 'region'){
+            region = Object.assign({}, groupDefaults);
+          } else {
+            region = null;
+          }
+        } else if(match[2]){
+          const key = match[2].toLowerCase();
+          let val = match[3];
+          if(val.startsWith('"') && val.endsWith('"')) val = val.slice(1,-1);
+          if(currentTag === 'group'){
+            groupDefaults[key] = val;
+          } else if(currentTag === 'region' && region){
+            region[key] = val;
+          }
+        }
+      }
+      if(currentTag === 'region' && region) parsedRegions.push(region);
+
+      // resolve regions into playable form
+      regions = [];
+      for(const r of parsedRegions){
+        if(!r.sample) continue;
+        let lokey, hikey, pitchCenter;
+        if(r.key !== undefined){
+          const k = parseKeyVal(r.key);
+          lokey = hikey = pitchCenter = k;
+        } else {
+          lokey = r.lokey !== undefined ? parseKeyVal(r.lokey) : 0;
+          hikey = r.hikey !== undefined ? parseKeyVal(r.hikey) : 127;
+          pitchCenter = r.pitch_keycenter !== undefined ? parseKeyVal(r.pitch_keycenter) : lokey;
+        }
+        if(lokey === null || hikey === null) continue;
+        const tune = r.tune ? parseFloat(r.tune) : 0; // cents
+        const volumeDb = r.volume ? parseFloat(r.volume) : 0;
+        let samplePath = r.sample.replace(/\\/g,'/');
+        // resolve relative to sfz dir
+        let fullPath = dir + samplePath;
+        // normalize ../
+        fullPath = normalizePath(fullPath);
+        regions.push({
+          kind:'sfz',
+          lokey, hikey, pitchCenter,
+          tune, volumeDb,
+          samplePath: fullPath,
+          lovel: r.lovel ? parseInt(r.lovel,10) : 0,
+          hivel: r.hivel ? parseInt(r.hivel,10) : 127,
+        });
+      }
+
+      sampleCache = {};
+      sf2Data = null; sf2Presets = [];
+      presetSelect.innerHTML = '';
+      setStatus(`${regions.length}個のリージョンを読み込みました`, 'ok');
+    }catch(err){
+      console.error(err);
+      setStatus('sfz解析エラー: '+err.message, 'err');
+    }
+  }
+
+  function normalizePath(p){
+    const parts = p.split('/');
+    const out = [];
+    for(const part of parts){
+      if(part === '.' || part === '') continue;
+      if(part === '..'){ out.pop(); continue; }
+      out.push(part);
+    }
+    return out.join('/');
+  }
+
+  function findZipEntry(path){
+    const lower = path.toLowerCase();
+    if(zipEntriesLower[lower]) return zipEntriesLower[lower];
+    // try matching by basename if exact path fails (case / dir mismatches)
+    const base = lower.split('/').pop();
+    for(const key in zipEntriesLower){
+      if(key.split('/').pop() === base) return zipEntriesLower[key];
+    }
+    return null;
+  }
+
+  // ---------------- SF2 parsing ----------------
+  function chunkId(dv, off){
+    return String.fromCharCode(dv.getUint8(off),dv.getUint8(off+1),dv.getUint8(off+2),dv.getUint8(off+3));
+  }
+  function readCName(dv, off, len){
+    let s = '';
+    for(let i=0;i<len;i++){
+      const c = dv.getUint8(off+i);
+      if(c === 0) break;
+      s += String.fromCharCode(c);
+    }
+    return s;
+  }
+
+  function parseSf2Structure(arrayBuffer){
+    const dv = new DataView(arrayBuffer);
+    if(chunkId(dv,0) !== 'RIFF') throw new Error('RIFFヘッダがありません');
+    const riffSize = dv.getUint32(4,true);
+    if(chunkId(dv,8) !== 'sfbk') throw new Error('SF2形式ではありません');
+    let pos = 12;
+    const end = 8 + riffSize;
+    let smplChunk = null;       // {start,size} byte offsets into arrayBuffer
+    const pdta = {};            // id -> {start,size}
+
+    while(pos < end){
+      const id = chunkId(dv,pos);
+      const size = dv.getUint32(pos+4,true);
+      const dataStart = pos+8;
+      if(id === 'LIST'){
+        const listType = chunkId(dv,dataStart);
+        const innerStart = dataStart+4;
+        const innerEnd = dataStart+size;
+        if(listType === 'sdta'){
+          let sp = innerStart;
+          while(sp < innerEnd){
+            const sid = chunkId(dv,sp);
+            const ssize = dv.getUint32(sp+4,true);
+            if(sid === 'smpl') smplChunk = {start:sp+8, size:ssize};
+            sp += 8+ssize+(ssize%2);
+          }
+        } else if(listType === 'pdta'){
+          let sp = innerStart;
+          while(sp < innerEnd){
+            const sid = chunkId(dv,sp);
+            const ssize = dv.getUint32(sp+4,true);
+            pdta[sid] = {start:sp+8, size:ssize};
+            sp += 8+ssize+(ssize%2);
+          }
+        }
+      }
+      pos += 8+size+(size%2);
+    }
+    if(!smplChunk) throw new Error('smplチャンクが見つかりません');
+    for(const req of ['phdr','pbag','pgen','inst','ibag','igen','shdr']){
+      if(!pdta[req]) throw new Error(req+'チャンクが見つかりません');
+    }
+
+    const phdr = []; { const {start,size} = pdta.phdr; const n = size/38;
+      for(let i=0;i<n;i++){ const o = start+i*38;
+        phdr.push({ name:readCName(dv,o,20), preset:dv.getUint16(o+20,true), bank:dv.getUint16(o+22,true), bagNdx:dv.getUint16(o+24,true) }); } }
+    const pbag = []; { const {start,size} = pdta.pbag; const n = size/4;
+      for(let i=0;i<n;i++){ const o = start+i*4; pbag.push({ genNdx:dv.getUint16(o,true), modNdx:dv.getUint16(o+2,true) }); } }
+    const pgen = []; { const {start,size} = pdta.pgen; const n = size/4;
+      for(let i=0;i<n;i++){ const o = start+i*4; pgen.push({ oper:dv.getUint16(o,true), lo:dv.getUint8(o+2), hi:dv.getUint8(o+3), amount:dv.getInt16(o+2,true) }); } }
+    const inst = []; { const {start,size} = pdta.inst; const n = size/22;
+      for(let i=0;i<n;i++){ const o = start+i*22; inst.push({ name:readCName(dv,o,20), bagNdx:dv.getUint16(o+20,true) }); } }
+    const ibag = []; { const {start,size} = pdta.ibag; const n = size/4;
+      for(let i=0;i<n;i++){ const o = start+i*4; ibag.push({ genNdx:dv.getUint16(o,true), modNdx:dv.getUint16(o+2,true) }); } }
+    const igen = []; { const {start,size} = pdta.igen; const n = size/4;
+      for(let i=0;i<n;i++){ const o = start+i*4; igen.push({ oper:dv.getUint16(o,true), lo:dv.getUint8(o+2), hi:dv.getUint8(o+3), amount:dv.getInt16(o+2,true) }); } }
+    const shdr = []; { const {start,size} = pdta.shdr; const n = size/46;
+      for(let i=0;i<n;i++){ const o = start+i*46;
+        shdr.push({
+          name:readCName(dv,o,20),
+          start:dv.getUint32(o+20,true), end:dv.getUint32(o+24,true),
+          startLoop:dv.getUint32(o+28,true), endLoop:dv.getUint32(o+32,true),
+          sampleRate:dv.getUint32(o+36,true),
+          originalPitch:dv.getUint8(o+40), pitchCorrection:dv.getInt8(o+41),
+        }); } }
+
+    const GEN = { keyRange:43, velRange:44, instrument:41, sampleID:53, overridingRootKey:58,
+      coarseTune:51, fineTune:52, sampleModes:54, initialAttenuation:48 };
+
+    // Build zone regions per instrument (local zones only; global zone defaults are ignored for simplicity)
+    function buildInstrumentZones(instIdx){
+      const zonesOut = [];
+      const bagStart = inst[instIdx].bagNdx, bagEnd = inst[instIdx+1] ? inst[instIdx+1].bagNdx : ibag.length-1;
+      for(let z=bagStart; z<bagEnd; z++){
+        const genStart = ibag[z].genNdx, genEnd = ibag[z+1] ? ibag[z+1].genNdx : igen.length;
+        const g = {};
+        for(let k=genStart;k<genEnd;k++){
+          const rec = igen[k];
+          switch(rec.oper){
+            case GEN.keyRange: g.keyLo=rec.lo; g.keyHi=rec.hi; break;
+            case GEN.velRange: g.velLo=rec.lo; g.velHi=rec.hi; break;
+            case GEN.sampleID: g.sampleID=rec.amount & 0xFFFF; break;
+            case GEN.overridingRootKey: g.rootKey=rec.amount; break;
+            case GEN.coarseTune: g.coarseTune=rec.amount; break;
+            case GEN.fineTune: g.fineTune=rec.amount; break;
+            case GEN.sampleModes: g.sampleModes=rec.amount; break;
+            case GEN.initialAttenuation: g.initAtten=rec.amount; break;
+          }
+        }
+        if(g.sampleID === undefined) continue; // global zone / no sample - skip (simplification)
+        zonesOut.push({
+          lokey: g.keyLo!==undefined?g.keyLo:0, hikey: g.keyHi!==undefined?g.keyHi:127,
+          lovel: g.velLo!==undefined?g.velLo:0, hivel: g.velHi!==undefined?g.velHi:127,
+          sampleIndex: g.sampleID,
+          rootKey: g.rootKey!==undefined?g.rootKey:-1,
+          coarseTune: g.coarseTune||0, fineTune: g.fineTune||0,
+          sampleModes: g.sampleModes||0, initAtten: g.initAtten||0,
+        });
+      }
+      return zonesOut;
+    }
+
+    // Build preset -> flattened regions
+    const presets = [];
+    for(let p=0; p<phdr.length-1; p++){ // last phdr entry is the terminal EOP marker
+      const bagStart = phdr[p].bagNdx, bagEnd = phdr[p+1].bagNdx;
+      const presetRegions = [];
+      for(let z=bagStart; z<bagEnd; z++){
+        const genStart = pbag[z].genNdx, genEnd = pbag[z+1] ? pbag[z+1].genNdx : pgen.length;
+        const g = {};
+        for(let k=genStart;k<genEnd;k++){
+          const rec = pgen[k];
+          switch(rec.oper){
+            case GEN.keyRange: g.keyLo=rec.lo; g.keyHi=rec.hi; break;
+            case GEN.velRange: g.velLo=rec.lo; g.velHi=rec.hi; break;
+            case GEN.instrument: g.instrument=(rec.amount & 0xFFFF); break;
+          }
+        }
+        if(g.instrument === undefined) continue; // global preset zone - skip (simplification)
+        const zones = buildInstrumentZones(g.instrument);
+        for(const z of zones){
+          let lokey=z.lokey, hikey=z.hikey, lovel=z.lovel, hivel=z.hivel;
+          if(g.keyLo!==undefined){ lokey=Math.max(lokey,g.keyLo); hikey=Math.min(hikey,g.keyHi); }
+          if(g.velLo!==undefined){ lovel=Math.max(lovel,g.velLo); hivel=Math.min(hivel,g.velHi); }
+          if(lokey>hikey || lovel>hivel) continue;
+          const shdrEntry = shdr[z.sampleIndex];
+          if(!shdrEntry) continue;
+          const pitchCenter = z.rootKey!==-1 ? z.rootKey : shdrEntry.originalPitch;
+          const tuneCents = z.coarseTune*100 + z.fineTune + (shdrEntry.pitchCorrection||0);
+          const volumeDb = -(z.initAtten)/10;
+          const loop = (z.sampleModes === 1 || z.sampleModes === 3);
+          presetRegions.push({
+            kind:'sf2',
+            lokey, hikey, lovel, hivel,
+            pitchCenter, tune: tuneCents, volumeDb,
+            sampleIndex: z.sampleIndex,
+            loop,
+            loopStartSec: (shdrEntry.startLoop - shdrEntry.start) / shdrEntry.sampleRate,
+            loopEndSec: (shdrEntry.endLoop - shdrEntry.start) / shdrEntry.sampleRate,
+          });
+        }
+      }
+      presets.push({ name:phdr[p].name, bank:phdr[p].bank, program:phdr[p].preset, regions:presetRegions });
+    }
+
+    return { smplChunk, shdr, presets };
+  }
+
+  async function loadSf2(path){
+    setStatus('SF2を解析中…');
+    try{
+      const entry = zipEntriesLower[path.toLowerCase()];
+      if(!entry) throw new Error('sf2が見つかりません');
+      const buf = await entryArrayBuffer(entry);
+      const parsed = parseSf2Structure(buf);
+      sf2Data = { buffer: buf, smplChunk: parsed.smplChunk, shdr: parsed.shdr };
+      sf2Presets = parsed.presets.filter(p => p.regions.length > 0);
+      sampleCache = {};
+
+      presetSelect.innerHTML = '';
+      sf2Presets.forEach((p, idx)=>{
+        const opt = document.createElement('option');
+        opt.value = idx;
+        opt.textContent = `[${p.bank}:${p.program}] ${p.name}`;
+        presetSelect.appendChild(opt);
+      });
+      presetSelect.disabled = sf2Presets.length === 0;
+      presetSelect.style.display = '';
+
+      if(sf2Presets.length === 0){
+        regions = [];
+        setStatus('演奏可能なプリセットが見つかりません', 'err');
+        return;
+      }
+      regions = sf2Presets[0].regions;
+      setStatus(`${sf2Presets.length}件のプリセットを検出（${regions.length}リージョン）`, 'ok');
+    }catch(err){
+      console.error(err);
+      setStatus('SF2解析エラー: '+err.message, 'err');
+    }
+  }
+
+  function getSf2SampleBuffer(sampleIndex){
+    const key = 'sf2:'+sampleIndex;
+    if(sampleCache[key]) return sampleCache[key];
+    const p = (async ()=>{
+      const s = sf2Data.shdr[sampleIndex];
+      const dv = new DataView(sf2Data.buffer);
+      const frameCount = Math.max(0, s.end - s.start);
+      const byteOffset = sf2Data.smplChunk.start + s.start*2;
+      const buffer = actx.createBuffer(1, Math.max(1,frameCount), s.sampleRate || 44100);
+      const chan = buffer.getChannelData(0);
+      for(let i=0;i<frameCount;i++){
+        chan[i] = dv.getInt16(byteOffset + i*2, true) / 32768;
+      }
+      return buffer;
+    })();
+    sampleCache[key] = p;
+    return p;
+  }
+
+  async function getSfzBuffer(samplePath){
+    const lower = 'sfz:'+samplePath.toLowerCase();
+    if(sampleCache[lower]) return sampleCache[lower];
+    const entry = findZipEntry(samplePath);
+    if(!entry) return null;
+    const p = entryArrayBuffer(entry).then(buf => actx.decodeAudioData(buf.slice(0)));
+    sampleCache[lower] = p;
+    return p;
+  }
+
+  async function getRegionBuffer(r){
+    if(r.kind === 'sf2') return getSf2SampleBuffer(r.sampleIndex);
+    return getSfzBuffer(r.samplePath);
+  }
+
+  function regionForNote(note, vel){
+    for(const r of regions){
+      if(note >= r.lokey && note <= r.hikey && vel >= r.lovel && vel <= r.hivel){
+        return r;
+      }
+    }
+    return null;
+  }
+
+  async function noteOn(note, vel){
+    if(regions.length === 0) return;
+    const r = regionForNote(note, vel === undefined ? 100 : vel);
+    if(!r) return;
+    let buffer;
+    try{
+      buffer = await getRegionBuffer(r);
+    }catch(err){
+      console.warn('sample decode failed', r, err);
+      return;
+    }
+    if(!buffer) return;
+    unlockAudio();
+    // stop any existing voice on this note
+    noteOff(note, true);
+    const src = actx.createBufferSource();
+    src.buffer = buffer;
+    const semis = (note - r.pitchCenter) + (r.tune/100);
+    src.playbackRate.value = Math.pow(2, semis/12);
+    if(r.loop){
+      src.loop = true;
+      src.loopStart = r.loopStartSec;
+      src.loopEnd = r.loopEndSec;
+    }
+    const g = actx.createGain();
+    const linGain = Math.pow(10, r.volumeDb/20) * ((vel||100)/127);
+    g.gain.value = Math.min(1.2, linGain || 0.9);
+    src.connect(g).connect(masterGain);
+    src.start();
+    voices[note] = {src, gain:g};
+    src.onended = ()=>{ if(voices[note] && voices[note].src === src) delete voices[note]; };
+  }
+
+  function noteOff(note, immediate){
+    const v = voices[note];
+    if(!v) return;
+    const now = actx.currentTime;
+    if(immediate){
+      try{ v.gain.gain.cancelScheduledValues(now); v.gain.gain.setValueAtTime(v.gain.gain.value, now); v.gain.gain.linearRampToValueAtTime(0.0001, now+0.02); v.src.stop(now+0.03); }catch(e){}
+    } else {
+      try{
+        v.gain.gain.cancelScheduledValues(now);
+        v.gain.gain.setValueAtTime(v.gain.gain.value, now);
+        v.gain.gain.linearRampToValueAtTime(0.0001, now+0.12);
+        v.src.stop(now+0.14);
+      }catch(e){}
+    }
+    delete voices[note];
+  }
+
+  // ---------------- Keyboard UI ----------------
+  const keyboardEl = document.getElementById('keyboard');
+  const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  let rootNote = (baseOctave+1)*12; // MIDI note for C at baseOctave (C3 default)
+  const WHITE_OFFSETS = [0,2,4,5,7,9,11];
+  const BLACK_AFTER = {0:1,1:1,3:1,4:1,5:1}; // index in white array that has a black key after it (0..6 within an octave, excluding E/B)
+  const OCTAVES = 2;
+
+  function midiName(n){
+    const name = NOTE_NAMES[n%12];
+    const oct = Math.floor(n/12)-1;
+    return name+oct;
+  }
+
+  function buildKeyboard(){
+    keyboardEl.innerHTML = '';
+    const whiteKeys = [];
+    for(let o=0; o<OCTAVES; o++){
+      WHITE_OFFSETS.forEach(off=>{
+        whiteKeys.push(rootNote + o*12 + off);
+      });
+    }
+    // add trailing C to complete visual range (optional) - keep exactly 2 octaves of whites (14 keys)
+    const totalWhite = whiteKeys.length;
+    whiteKeys.forEach((note, idx)=>{
+      const w = document.createElement('div');
+      w.className = 'wkey';
+      w.dataset.note = note;
+      const lbl = document.createElement('div');
+      lbl.className = 'lbl';
+      if(note % 12 === 0) lbl.textContent = midiName(note);
+      w.appendChild(lbl);
+      keyboardEl.appendChild(w);
+      attachKeyEvents(w, note);
+    });
+
+    // black keys positioned absolutely based on white key width
+    requestAnimationFrame(()=>{
+      const whiteEls = Array.from(keyboardEl.querySelectorAll('.wkey'));
+      if(whiteEls.length === 0) return;
+      const kbWidth = keyboardEl.clientWidth;
+      const whiteW = kbWidth / totalWhite;
+      whiteEls.forEach((wEl, idx)=>{
+        const note = parseInt(wEl.dataset.note,10);
+        const posInOct = idx % 7;
+        if(BLACK_AFTER[posInOct] !== undefined && idx !== totalWhite-1){
+          const bNote = note+1;
+          const b = document.createElement('div');
+          b.className = 'bkey';
+          b.dataset.note = bNote;
+          b.style.left = (whiteW*(idx+1) - whiteW*0.3) + 'px';
+          b.style.width = (whiteW*0.6) + 'px';
+          keyboardEl.appendChild(b);
+          attachKeyEvents(b, bNote);
+        }
+      });
+    });
+  }
+
+  function attachKeyEvents(el, note){
+    const down = (e)=>{
+      e.preventDefault();
+      el.classList.add('active');
+      noteOn(note, 100);
+    };
+    const up = (e)=>{
+      e.preventDefault();
+      el.classList.remove('active');
+      noteOff(note);
+    };
+    el.addEventListener('pointerdown', down);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointerleave', up);
+    el.addEventListener('pointercancel', up);
+    el.addEventListener('pointerout', (e)=>{
+      // if pointer leaves while still down (dragging across keys), release
+      if(e.buttons === 0 && el.classList.contains('active')){ up(e); }
+    });
+  }
+
+  window.addEventListener('resize', ()=> buildKeyboard());
+
+  // ---------------- Octave controls ----------------
+  function updateOctLabel(){
+    octLabel.textContent = midiName(rootNote);
+  }
+  document.getElementById('octUp').addEventListener('click', ()=>{
+    if(rootNote + OCTAVES*12 <= 127-11){ rootNote += 12; buildKeyboard(); updateOctLabel(); }
+  });
+  document.getElementById('octDown').addEventListener('click', ()=>{
+    if(rootNote - 12 >= 0){ rootNote -= 12; buildKeyboard(); updateOctLabel(); }
+  });
+  updateOctLabel();
+  buildKeyboard();
+
+  // ---------------- Computer keyboard input ----------------
+  const KEYMAP = { // relative semitone from rootNote
+    'a':0,'w':1,'s':2,'e':3,'d':4,'f':5,'t':6,'g':7,'y':8,'h':9,'u':10,'j':11,'k':12,'o':13,'l':14,'p':15,';':16
+  };
+  const pressedComputerKeys = {};
+  window.addEventListener('keydown', (e)=>{
+    if(e.repeat) return;
+    const k = e.key.toLowerCase();
+    if(k === 'z'){ document.getElementById('octDown').click(); return; }
+    if(k === 'x'){ document.getElementById('octUp').click(); return; }
+    if(KEYMAP.hasOwnProperty(k) && !pressedComputerKeys[k]){
+      pressedComputerKeys[k] = true;
+      const note = rootNote + KEYMAP[k];
+      noteOn(note, 100);
+      highlightKeyEl(note, true);
+    }
+  });
+  window.addEventListener('keyup', (e)=>{
+    const k = e.key.toLowerCase();
+    if(KEYMAP.hasOwnProperty(k)){
+      delete pressedComputerKeys[k];
+      const note = rootNote + KEYMAP[k];
+      noteOff(note);
+      highlightKeyEl(note, false);
+    }
+  });
+  function highlightKeyEl(note, on){
+    const el = keyboardEl.querySelector(`[data-note="${note}"]`);
+    if(el) el.classList.toggle('active', on);
+  }
+
+  // ---------------- Draggable / resizable panel ----------------
+  const panel = document.getElementById('panel');
+  const panelHead = document.getElementById('panel-head');
+  const resizeHandle = document.getElementById('resize');
+
+  function makeDraggable(handle, target){
+    let startX,startY,startLeft,startTop,dragging=false;
+    handle.addEventListener('pointerdown', (e)=>{
+      dragging = true;
+      handle.setPointerCapture(e.pointerId);
+      const rect = target.getBoundingClientRect();
+      startX = e.clientX; startY = e.clientY;
+      startLeft = rect.left; startTop = rect.top;
+      target.style.left = startLeft+'px';
+      target.style.top = startTop+'px';
+    });
+    handle.addEventListener('pointermove', (e)=>{
+      if(!dragging) return;
+      const dx = e.clientX-startX, dy = e.clientY-startY;
+      let newLeft = startLeft+dx, newTop = startTop+dy;
+      newLeft = Math.max(0, Math.min(window.innerWidth-60, newLeft));
+      newTop = Math.max(0, Math.min(window.innerHeight-60, newTop));
+      target.style.left = newLeft+'px';
+      target.style.top = newTop+'px';
+    });
+    const end = (e)=>{ dragging=false; };
+    handle.addEventListener('pointerup', end);
+    handle.addEventListener('pointercancel', end);
+  }
+
+  function makeResizable(handle, target){
+    let startX,startY,startW,startH,resizing=false;
+    handle.addEventListener('pointerdown', (e)=>{
+      resizing = true;
+      handle.setPointerCapture(e.pointerId);
+      const rect = target.getBoundingClientRect();
+      startX = e.clientX; startY = e.clientY;
+      startW = rect.width; startH = rect.height;
+      e.stopPropagation();
+    });
+    handle.addEventListener('pointermove', (e)=>{
+      if(!resizing) return;
+      const dx = e.clientX-startX, dy = e.clientY-startY;
+      const newW = Math.max(360, startW+dx);
+      const newH = Math.max(140, startH+dy);
+      target.style.width = newW+'px';
+      target.style.height = newH+'px';
+      buildKeyboard();
+    });
+    const end = ()=>{ resizing=false; };
+    handle.addEventListener('pointerup', end);
+    handle.addEventListener('pointercancel', end);
+  }
+
+  makeDraggable(panelHead, panel);
+  makeResizable(resizeHandle, panel);
+
+  // ---------------- Level meter ----------------
+  const meterFill = document.getElementById('meter-fill');
+  const meterPeak = document.getElementById('meter-peak');
+  let peakPct = 0;
+  function drawMeter(){
+    analyser.getFloatTimeDomainData(meterData);
+    let sum = 0, peak = 0;
+    for(let i=0;i<meterData.length;i++){
+      const v = meterData[i];
+      sum += v*v;
+      const a = Math.abs(v);
+      if(a > peak) peak = a;
+    }
+    const rms = Math.sqrt(sum/meterData.length);
+    // map rms (0..~1) to 0..100% with a light curve so quiet sounds are still visible
+    const pct = Math.min(100, Math.pow(rms, 0.5) * 130);
+    meterFill.style.width = pct + '%';
+    peakPct = Math.max(pct, peakPct - 2.2); // slow peak decay
+    meterPeak.style.left = Math.min(98, peakPct) + '%';
+    requestAnimationFrame(drawMeter);
+  }
+  requestAnimationFrame(drawMeter);
+
+})();
+</script>
+</body>
+</html>
