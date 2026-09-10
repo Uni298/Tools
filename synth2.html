@@ -1,0 +1,1257 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>タッチ・ビブラート・シンセ</title>
+<style>
+  :root {
+    --white-w: 60px;
+    --white-h: 220px;
+    --black-w: 36px;
+    --black-h: 140px;
+    --white-offset-y: 0px;
+    --black-offset-y: 0px;
+  }
+  * { box-sizing: border-box; -webkit-user-select: none; user-select: none; touch-action: none; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #14151a; color: #eee;
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
+    overflow-x: hidden; overflow-y: auto;
+    touch-action: manipulation;
+    -webkit-text-size-adjust: 100%;
+  }
+  #wrap { display: flex; flex-direction: column; align-items: center; padding: 16px 8px 8px; padding-bottom: calc(var(--white-h) + 40px); }
+  h1 { font-size: 16px; font-weight: 600; margin: 4px 0 12px; color: #9fd; }
+
+  #scope-box {
+    width: 100%; max-width: 720px; height: 110px;
+    background: #0a0b0e; border: 1px solid #2a2c33; border-radius: 8px;
+    margin-bottom: 12px; overflow: hidden;
+  }
+  #scope { width: 100%; height: 100%; display: block; }
+
+  #panelTabs { display: flex; gap: 8px; margin-bottom: 12px; }
+  .tabBtn {
+    font-size: 12px; padding: 6px 14px; border-radius: 999px;
+    background: #1b1c22; border: 1px solid #2a2c33; color: #aab;
+  }
+  .tabBtn.active { background: #2c7d58; color: #fff; border-color: #2c7d58; }
+
+  #keys-outer {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    display: flex; justify-content: flex-start;
+    background: #0e0f13; border-top: 1px solid #2a2c33;
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px));
+    z-index: 10;
+    overflow-x: auto; overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+  #keys {
+    position: relative;
+    width: max-content;
+    height: var(--white-h);
+  }
+  .key {
+    position: absolute;
+    display: flex; align-items: flex-end; justify-content: center;
+    padding-bottom: 8px; font-size: 11px;
+    transition: background 60ms, transform 60ms;
+    border-radius: 0 0 6px 6px;
+  }
+  .key.white {
+    height: var(--white-h);
+    top: var(--white-offset-y);
+    background: linear-gradient(180deg, #fdfdfd, #e9e9e9);
+    border: 1px solid #999; color: #556;
+    z-index: 1;
+  }
+  .key.white.active {
+    background: linear-gradient(180deg, #9be8c4, #4fbd88);
+    color: #044; transform: scale(0.99);
+  }
+  .key.black {
+    height: var(--black-h);
+    top: var(--black-offset-y);
+    background: linear-gradient(180deg, #333, #0b0b0b);
+    border: 1px solid #000; color: #ccc;
+    z-index: 2;
+  }
+  .key.black.active {
+    background: linear-gradient(180deg, #3fae7a, #1c6a45);
+    color: #fff; transform: scale(0.97);
+  }
+  .key .meter {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: rgba(80,255,170,0.4);
+    height: 0%;
+    border-radius: 0 0 5px 5px;
+    pointer-events: none;
+  }
+  .key .label { position: relative; z-index: 1; pointer-events: none; }
+
+  #controls {
+    width: 100%; max-width: 480px;
+    display: flex; flex-direction: column; gap: 10px;
+    background: #1b1c22; border: 1px solid #2a2c33; border-radius: 10px;
+    padding: 14px 18px;
+    max-height: 46vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+  }
+  #controls * { touch-action: pan-y; }
+  .panel { display: none; flex-direction: column; gap: 10px; }
+  .panel.active { display: flex; }
+  .ctrl-row { display: flex; align-items: center; gap: 10px; }
+  .ctrl-row label { flex: 0 0 130px; font-size: 12px; color: #aab; }
+  .ctrl-row input[type=range] { flex: 1; }
+  .ctrl-row .val { flex: 0 0 44px; font-size: 12px; text-align: right; color: #9fd; }
+  .ctrl-row select {
+    flex: 1; background: #14151a; color: #eee; border: 1px solid #2a2c33;
+    border-radius: 6px; padding: 4px 6px; font-size: 12px;
+  }
+  .toggleGroup { display: flex; gap: 6px; }
+  .toggleGroup button {
+    flex: 1; font-size: 11px; padding: 6px 4px; border-radius: 6px;
+    background: #14151a; border: 1px solid #2a2c33; color: #aab;
+  }
+  .toggleGroup button.on { background: #2c7d58; color: #fff; border-color: #2c7d58; }
+  .section-title { font-size: 11px; color: #667; margin-top: 4px; letter-spacing: 0.05em; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <h1>タッチ・ビブラート・シンセ</h1>
+
+  <div id="scope-box"><canvas id="scope"></canvas></div>
+
+  <div id="panelTabs">
+    <button class="tabBtn active" data-panel="panelKeys">鍵盤</button>
+    <button class="tabBtn" data-panel="panelOsc">音色</button>
+    <button class="tabBtn" data-panel="panelEnv">ADSR</button>
+    <button class="tabBtn" data-panel="panelFx">エフェクト</button>
+  </div>
+
+  <div id="keys-outer"><div id="keys"></div></div>
+
+  <div id="controls">
+    <div class="panel active" id="panelKeys">
+      <div class="section-title">鍵盤</div>
+      <div class="ctrl-row">
+        <label>オクターブ</label>
+        <input type="range" id="octave" min="1" max="6" step="1" value="4">
+        <span class="val" id="octaveVal">4</span>
+      </div>
+      <div class="ctrl-row">
+        <label>全体の横幅</label>
+        <input type="range" id="widthScale" min="0.5" max="1.6" step="0.05" value="1">
+        <span class="val" id="widthScaleVal">1.0</span>
+      </div>
+      <div class="ctrl-row">
+        <label>白鍵の幅</label>
+        <input type="range" id="whiteW" min="30" max="90" value="60">
+        <span class="val" id="whiteWVal">60</span>
+      </div>
+      <div class="ctrl-row">
+        <label>白鍵の高さ</label>
+        <input type="range" id="whiteH" min="120" max="320" value="220">
+        <span class="val" id="whiteHVal">220</span>
+      </div>
+      <div class="ctrl-row">
+        <label>黒鍵の幅</label>
+        <input type="range" id="blackW" min="18" max="60" value="36">
+        <span class="val" id="blackWVal">36</span>
+      </div>
+      <div class="ctrl-row">
+        <label>黒鍵の高さ</label>
+        <input type="range" id="blackH" min="60" max="240" value="140">
+        <span class="val" id="blackHVal">140</span>
+      </div>
+      <div class="ctrl-row">
+        <label>白鍵の位置（上下）</label>
+        <input type="range" id="whiteOffsetY" min="-40" max="40" value="0">
+        <span class="val" id="whiteOffsetYVal">0</span>
+      </div>
+      <div class="ctrl-row">
+        <label>黒鍵の位置（上下）</label>
+        <input type="range" id="blackOffsetY" min="-40" max="40" value="0">
+        <span class="val" id="blackOffsetYVal">0</span>
+      </div>
+
+      <div class="section-title">タッチ検知（音量）</div>
+      <div class="ctrl-row">
+        <label>検知感度</label>
+        <input type="range" id="touchSens" min="0.5" max="3" step="0.1" value="1.4">
+        <span class="val" id="touchSensVal">1.4</span>
+      </div>
+
+      <div class="section-title">ビブラート</div>
+      <div class="ctrl-row">
+        <label>強さ（深さ）</label>
+        <input type="range" id="vibDepth" min="0" max="100" value="40">
+        <span class="val" id="vibDepthVal">40</span>
+      </div>
+      <div class="ctrl-row">
+        <label>速さの倍率</label>
+        <input type="range" id="vibSpeed" min="1" max="10" step="0.1" value="5">
+        <span class="val" id="vibSpeedVal">5</span>
+      </div>
+      <div class="ctrl-row">
+        <label>揺れ検知感度</label>
+        <input type="range" id="vibSens" min="0.2" max="3" step="0.1" value="1">
+        <span class="val" id="vibSensVal">1</span>
+      </div>
+    </div>
+
+    <div class="panel" id="panelOsc">
+      <div class="section-title">波形</div>
+      <div class="ctrl-row">
+        <label>波形</label>
+        <select id="waveform">
+          <option value="square" selected>矩形波（短波）</option>
+          <option value="sawtooth">saw</option>
+          <option value="sine">sin</option>
+        </select>
+      </div>
+
+      <div class="section-title">デチューン / ユニゾン</div>
+      <div class="ctrl-row">
+        <label>デチューン</label>
+        <input type="range" id="detune" min="-50" max="50" step="1" value="0">
+        <span class="val" id="detuneVal">0</span>
+      </div>
+      <div class="ctrl-row">
+        <label>ユニゾン数</label>
+        <input type="range" id="unisonVoices" min="1" max="7" step="1" value="1">
+        <span class="val" id="unisonVoicesVal">1</span>
+      </div>
+      <div class="ctrl-row">
+        <label>ユニゾン広がり</label>
+        <input type="range" id="unisonSpread" min="0" max="50" step="1" value="12">
+        <span class="val" id="unisonSpreadVal">12</span>
+      </div>
+      <div class="section-title">単音モード / グライド</div>
+      <div class="ctrl-row">
+        <label>単音モード</label>
+        <div class="toggleGroup">
+          <button id="monoOn" data-on="0">オフ</button>
+        </div>
+      </div>
+      <div class="ctrl-row">
+        <label>グライド速度 (s)</label>
+        <input type="range" id="glideTime" min="0.01" max="1.5" step="0.01" value="0.15">
+        <span class="val" id="glideTimeVal">0.15</span>
+      </div>
+    </div>
+
+    <div class="panel" id="panelEnv">
+      <div class="section-title">ADSR エンベロープ</div>
+      <div class="ctrl-row">
+        <label>Attack (s)</label>
+        <input type="range" id="attack" min="0.001" max="2" step="0.001" value="0.01">
+        <span class="val" id="attackVal">0.01</span>
+      </div>
+      <div class="ctrl-row">
+        <label>Decay (s)</label>
+        <input type="range" id="decay" min="0.001" max="2" step="0.001" value="0.15">
+        <span class="val" id="decayVal">0.15</span>
+      </div>
+      <div class="ctrl-row">
+        <label>Sustain</label>
+        <input type="range" id="sustain" min="0" max="1" step="0.01" value="0.7">
+        <span class="val" id="sustainVal">0.70</span>
+      </div>
+      <div class="ctrl-row">
+        <label>Release (s)</label>
+        <input type="range" id="release" min="0.001" max="3" step="0.001" value="0.2">
+        <span class="val" id="releaseVal">0.20</span>
+      </div>
+    </div>
+
+    <div class="panel" id="panelFx">
+      <div class="ctrl-row">
+        <label>エフェクト全体</label>
+        <div class="toggleGroup">
+          <button id="fxToggleAll" class="on">表示中</button>
+        </div>
+      </div>
+
+      <div id="fxBody">
+        <div class="section-title">ディストーション</div>
+        <div class="ctrl-row">
+          <label>有効</label>
+          <div class="toggleGroup">
+            <button id="distOn" data-on="0">オフ</button>
+          </div>
+        </div>
+        <div class="ctrl-row">
+          <label>タイプ</label>
+          <div class="toggleGroup">
+            <button id="distHard">hard clip</button>
+            <button id="distSoft" class="on">soft clip</button>
+          </div>
+        </div>
+        <div class="ctrl-row">
+          <label>量</label>
+          <input type="range" id="distAmount" min="0" max="100" step="1" value="30">
+          <span class="val" id="distAmountVal">30</span>
+        </div>
+
+        <div class="section-title">3バンド EQ</div>
+        <div class="ctrl-row">
+          <label>Low (dB)</label>
+          <input type="range" id="eqLow" min="-15" max="15" step="0.5" value="0">
+          <span class="val" id="eqLowVal">0.0</span>
+        </div>
+        <div class="ctrl-row">
+          <label>Mid (dB)</label>
+          <input type="range" id="eqMid" min="-15" max="15" step="0.5" value="0">
+          <span class="val" id="eqMidVal">0.0</span>
+        </div>
+        <div class="ctrl-row">
+          <label>High (dB)</label>
+          <input type="range" id="eqHigh" min="-15" max="15" step="0.5" value="0">
+          <span class="val" id="eqHighVal">0.0</span>
+        </div>
+
+        <div class="section-title">マルチバンドコンプ</div>
+        <div class="ctrl-row">
+          <label>有効</label>
+          <div class="toggleGroup">
+            <button id="compOn" data-on="0">オフ</button>
+          </div>
+        </div>
+        <div class="ctrl-row">
+          <label>閾値 (dB)</label>
+          <input type="range" id="compThreshold" min="-60" max="0" step="1" value="-24">
+          <span class="val" id="compThresholdVal">-24</span>
+        </div>
+        <div class="ctrl-row">
+          <label>レシオ (1:N)</label>
+          <input type="range" id="compRatio" min="1" max="60" step="1" value="4">
+          <span class="val" id="compRatioVal">4</span>
+        </div>
+
+        <div class="section-title">ディレイ</div>
+        <div class="ctrl-row">
+          <label>有効</label>
+          <div class="toggleGroup">
+            <button id="delayOn" data-on="0">オフ</button>
+          </div>
+        </div>
+        <div class="ctrl-row">
+          <label>タイム (s)</label>
+          <input type="range" id="delayTime" min="0.02" max="1" step="0.01" value="0.3">
+          <span class="val" id="delayTimeVal">0.30</span>
+        </div>
+        <div class="ctrl-row">
+          <label>フィードバック</label>
+          <input type="range" id="delayFeedback" min="0" max="0.9" step="0.01" value="0.35">
+          <span class="val" id="delayFeedbackVal">0.35</span>
+        </div>
+        <div class="ctrl-row">
+          <label>ミックス</label>
+          <input type="range" id="delayMix" min="0" max="1" step="0.01" value="0.25">
+          <span class="val" id="delayMixVal">0.25</span>
+        </div>
+
+        <div class="section-title">リバーブ</div>
+        <div class="ctrl-row">
+          <label>有効</label>
+          <div class="toggleGroup">
+            <button id="reverbOn" data-on="0">オフ</button>
+          </div>
+        </div>
+        <div class="ctrl-row">
+          <label>広さ (s)</label>
+          <input type="range" id="reverbSize" min="0.2" max="6" step="0.1" value="2">
+          <span class="val" id="reverbSizeVal">2.0</span>
+        </div>
+        <div class="ctrl-row">
+          <label>ミックス</label>
+          <input type="range" id="reverbMix" min="0" max="1" step="0.01" value="0.25">
+          <span class="val" id="reverbMixVal">0.25</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener("gesturestart", (e) => e.preventDefault());
+document.addEventListener("gesturechange", (e) => e.preventDefault());
+document.addEventListener("gestureend", (e) => e.preventDefault());
+
+let lastTouchEnd = 0;
+document.addEventListener("touchend", (e) => {
+  const now = Date.now();
+  if (now - lastTouchEnd <= 350) {
+    e.preventDefault();
+  }
+  lastTouchEnd = now;
+}, { passive: false });
+
+document.addEventListener("dblclick", (e) => e.preventDefault());
+
+// tab switching
+document.querySelectorAll(".tabBtn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tabBtn").forEach((b) => b.classList.remove("active"));
+    document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById(btn.dataset.panel).classList.add("active");
+  });
+});
+
+document.getElementById("fxToggleAll").addEventListener("click", (e) => {
+  const body = document.getElementById("fxBody");
+  const hidden = body.style.display === "none";
+  body.style.display = hidden ? "" : "none";
+  e.target.textContent = hidden ? "表示中" : "非表示";
+});
+</script>
+<script>
+const NOTE_LETTERS = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+const WHITE_PC = new Set([0, 2, 4, 5, 7, 9, 11]);
+const BLACK_AFTER_WHITE_LOCAL = { 1: 0, 3: 1, 6: 3, 8: 4, 10: 5 };
+
+function midiToFreq(midi) {
+  return 440 * Math.pow(2, (midi - 69) / 12);
+}
+
+let audioCtx = null;
+let analyser = null;
+let synthOutput = null; // where each voice connects; feeds effects chain
+const voices = {};
+const monoState = { voice: null, stack: [], activeIdentifier: null };
+
+const params = {
+  octave: 4,
+  widthScale: 1,
+  whiteW: 60, whiteH: 220, blackW: 36, blackH: 140,
+  whiteOffsetY: 0, blackOffsetY: 0,
+  touchSens: 1.4,
+  vibDepth: 40,
+  vibSpeed: 5,
+  vibSens: 1,
+  waveform: "square",
+  detune: 0,
+  unisonVoices: 1,
+  unisonSpread: 12,
+  monoMode: false,
+  glideTime: 0.15,
+  attack: 0.01,
+  decay: 0.15,
+  sustain: 0.7,
+  release: 0.2,
+  distOn: false,
+  distType: "soft",
+  distAmount: 30,
+  eqLow: 0, eqMid: 0, eqHigh: 0,
+  compOn: false,
+  compThreshold: -24,
+  compRatio: 4,
+  delayOn: false,
+  delayTime: 0.3,
+  delayFeedback: 0.35,
+  delayMix: 0.25,
+  reverbOn: false,
+  reverbSize: 2,
+  reverbMix: 0.25
+};
+
+/* ---------------- effects chain ---------------- */
+
+let fxNodes = null;
+
+function makeDistortionCurve(amount, type) {
+  const n = 1024;
+  const curve = new Float32Array(n);
+  const amt = Math.max(0.0001, amount / 100);
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * 2 - 1;
+    if (type === "hard") {
+      const threshold = 1 - amt * 0.95;
+      curve[i] = Math.max(-threshold, Math.min(threshold, x)) / threshold;
+    } else {
+      const k = amt * 40 + 1;
+      curve[i] = Math.tanh(k * x) / Math.tanh(k);
+    }
+  }
+  return curve;
+}
+
+function makeImpulseResponse(ctx, seconds) {
+  const rate = ctx.sampleRate;
+  const length = Math.max(1, Math.floor(rate * seconds));
+  const impulse = ctx.createBuffer(2, length, rate);
+  for (let ch = 0; ch < 2; ch++) {
+    const data = impulse.getChannelData(ch);
+    for (let i = 0; i < length; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 2.5);
+    }
+  }
+  return impulse;
+}
+
+function makeBandCompressor(ctx, ratio, thresholdDb) {
+  // Native DynamicsCompressorNode ratio maxes out at 20:1, so for higher
+  // requested ratios (up to 60:1) two compressors are chained to
+  // approximate the combined effect.
+  const r = Math.max(1, Math.min(60, ratio));
+  const r1 = Math.min(20, r);
+  const r2 = r > 20 ? Math.min(20, r / 20) : 1;
+  const c1 = ctx.createDynamicsCompressor();
+  c1.threshold.value = thresholdDb;
+  c1.ratio.value = r1;
+  c1.attack.value = 0.003;
+  c1.release.value = 0.25;
+  c1.knee.value = 6;
+  const c2 = ctx.createDynamicsCompressor();
+  c2.threshold.value = thresholdDb;
+  c2.ratio.value = r2;
+  c2.attack.value = 0.003;
+  c2.release.value = 0.25;
+  c2.knee.value = 6;
+  c1.connect(c2);
+  return { input: c1, output: c2, c1, c2 };
+}
+
+function buildEffectsChain() {
+  const ctx = audioCtx;
+
+  synthOutput = ctx.createGain();
+  synthOutput.gain.value = 0.9;
+
+  // distortion
+  const distShaper = ctx.createWaveShaper();
+  distShaper.curve = makeDistortionCurve(params.distAmount, params.distType);
+  distShaper.oversample = "4x";
+  const distDryGain = ctx.createGain();
+  const distWetGain = ctx.createGain();
+  distDryGain.gain.value = params.distOn ? 0 : 1;
+  distWetGain.gain.value = params.distOn ? 1 : 0;
+  const distMerge = ctx.createGain();
+  synthOutput.connect(distDryGain);
+  synthOutput.connect(distShaper);
+  distShaper.connect(distWetGain);
+  distDryGain.connect(distMerge);
+  distWetGain.connect(distMerge);
+
+  // 3-band EQ
+  const eqLow = ctx.createBiquadFilter();
+  eqLow.type = "lowshelf"; eqLow.frequency.value = 300; eqLow.gain.value = params.eqLow;
+  const eqMid = ctx.createBiquadFilter();
+  eqMid.type = "peaking"; eqMid.frequency.value = 1500; eqMid.Q.value = 0.7; eqMid.gain.value = params.eqMid;
+  const eqHigh = ctx.createBiquadFilter();
+  eqHigh.type = "highshelf"; eqHigh.frequency.value = 5000; eqHigh.gain.value = params.eqHigh;
+  distMerge.connect(eqLow);
+  eqLow.connect(eqMid);
+  eqMid.connect(eqHigh);
+
+  // multiband compressor (low / mid / high split, each through a chained
+  // pair of compressors, then summed back together)
+  const lowSplit = ctx.createBiquadFilter();
+  lowSplit.type = "lowpass"; lowSplit.frequency.value = 250;
+  const midSplitHP = ctx.createBiquadFilter();
+  midSplitHP.type = "highpass"; midSplitHP.frequency.value = 250;
+  const midSplitLP = ctx.createBiquadFilter();
+  midSplitLP.type = "lowpass"; midSplitLP.frequency.value = 2500;
+  const highSplit = ctx.createBiquadFilter();
+  highSplit.type = "highpass"; highSplit.frequency.value = 2500;
+
+  eqHigh.connect(lowSplit);
+  eqHigh.connect(midSplitHP);
+  midSplitHP.connect(midSplitLP);
+  eqHigh.connect(highSplit);
+
+  const compLowBand = makeBandCompressor(ctx, params.compRatio, params.compThreshold);
+  const compMidBand = makeBandCompressor(ctx, params.compRatio, params.compThreshold);
+  const compHighBand = makeBandCompressor(ctx, params.compRatio, params.compThreshold);
+
+  lowSplit.connect(compLowBand.input);
+  midSplitLP.connect(compMidBand.input);
+  highSplit.connect(compHighBand.input);
+
+  const compSum = ctx.createGain();
+  const compDry = ctx.createGain();
+  const compWet = ctx.createGain();
+  compDry.gain.value = params.compOn ? 0 : 1;
+  compWet.gain.value = params.compOn ? 1 : 0;
+
+  eqHigh.connect(compDry);
+  compLowBand.output.connect(compSum);
+  compMidBand.output.connect(compSum);
+  compHighBand.output.connect(compSum);
+  compSum.connect(compWet);
+
+  const postComp = ctx.createGain();
+  compDry.connect(postComp);
+  compWet.connect(postComp);
+
+  // delay
+  const delayNode = ctx.createDelay(2);
+  delayNode.delayTime.value = params.delayTime;
+  const delayFeedback = ctx.createGain();
+  delayFeedback.gain.value = params.delayFeedback;
+  const delayWet = ctx.createGain();
+  delayWet.gain.value = params.delayOn ? params.delayMix : 0;
+  const delayDry = ctx.createGain();
+  delayDry.gain.value = 1;
+
+  postComp.connect(delayDry);
+  postComp.connect(delayNode);
+  delayNode.connect(delayFeedback);
+  delayFeedback.connect(delayNode);
+  delayNode.connect(delayWet);
+
+  const postDelay = ctx.createGain();
+  delayDry.connect(postDelay);
+  delayWet.connect(postDelay);
+
+  // reverb
+  const convolver = ctx.createConvolver();
+  convolver.buffer = makeImpulseResponse(ctx, params.reverbSize);
+  const reverbWet = ctx.createGain();
+  reverbWet.gain.value = params.reverbOn ? params.reverbMix : 0;
+  const reverbDry = ctx.createGain();
+  reverbDry.gain.value = 1;
+
+  postDelay.connect(reverbDry);
+  postDelay.connect(convolver);
+  convolver.connect(reverbWet);
+
+  const master = ctx.createGain();
+  master.gain.value = 0.85;
+  reverbDry.connect(master);
+  reverbWet.connect(master);
+
+  analyser = ctx.createAnalyser();
+  analyser.fftSize = 2048;
+  master.connect(analyser);
+  analyser.connect(ctx.destination);
+
+  fxNodes = {
+    distShaper, distDryGain, distWetGain,
+    eqLow, eqMid, eqHigh,
+    compLowBand, compMidBand, compHighBand, compDry, compWet,
+    delayNode, delayFeedback, delayWet,
+    convolver, reverbWet
+  };
+}
+
+function updateDistortion() {
+  if (!fxNodes) return;
+  fxNodes.distShaper.curve = makeDistortionCurve(params.distAmount, params.distType);
+  fxNodes.distDryGain.gain.setTargetAtTime(params.distOn ? 0 : 1, audioCtx.currentTime, 0.02);
+  fxNodes.distWetGain.gain.setTargetAtTime(params.distOn ? 1 : 0, audioCtx.currentTime, 0.02);
+}
+
+function updateEQ() {
+  if (!fxNodes) return;
+  fxNodes.eqLow.gain.setTargetAtTime(params.eqLow, audioCtx.currentTime, 0.02);
+  fxNodes.eqMid.gain.setTargetAtTime(params.eqMid, audioCtx.currentTime, 0.02);
+  fxNodes.eqHigh.gain.setTargetAtTime(params.eqHigh, audioCtx.currentTime, 0.02);
+}
+
+function updateComp() {
+  if (!fxNodes) return;
+  const r = Math.max(1, Math.min(60, params.compRatio));
+  const r1 = Math.min(20, r);
+  const r2 = r > 20 ? Math.min(20, r / 20) : 1;
+  [fxNodes.compLowBand, fxNodes.compMidBand, fxNodes.compHighBand].forEach((band) => {
+    band.c1.ratio.setTargetAtTime(r1, audioCtx.currentTime, 0.02);
+    band.c2.ratio.setTargetAtTime(r2, audioCtx.currentTime, 0.02);
+    band.c1.threshold.setTargetAtTime(params.compThreshold, audioCtx.currentTime, 0.02);
+    band.c2.threshold.setTargetAtTime(params.compThreshold, audioCtx.currentTime, 0.02);
+  });
+  fxNodes.compDry.gain.setTargetAtTime(params.compOn ? 0 : 1, audioCtx.currentTime, 0.02);
+  fxNodes.compWet.gain.setTargetAtTime(params.compOn ? 1 : 0, audioCtx.currentTime, 0.02);
+}
+
+function updateDelay() {
+  if (!fxNodes) return;
+  fxNodes.delayNode.delayTime.setTargetAtTime(params.delayTime, audioCtx.currentTime, 0.02);
+  fxNodes.delayFeedback.gain.setTargetAtTime(params.delayFeedback, audioCtx.currentTime, 0.02);
+  fxNodes.delayWet.gain.setTargetAtTime(params.delayOn ? params.delayMix : 0, audioCtx.currentTime, 0.02);
+}
+
+function updateReverb() {
+  if (!fxNodes) return;
+  fxNodes.reverbWet.gain.setTargetAtTime(params.reverbOn ? params.reverbMix : 0, audioCtx.currentTime, 0.02);
+}
+
+function rebuildReverbImpulse() {
+  if (!fxNodes || !audioCtx) return;
+  fxNodes.convolver.buffer = makeImpulseResponse(audioCtx, params.reverbSize);
+}
+
+function ensureAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  buildEffectsChain();
+  drawScope();
+}
+
+/* ---------------- voice (per note) ---------------- */
+
+function createVoice(freq) {
+  const ctx = audioCtx;
+  const now = ctx.currentTime;
+
+  const voiceGain = ctx.createGain();
+  voiceGain.gain.setValueAtTime(0.0001, now);
+  voiceGain.connect(synthOutput);
+
+  // shared vibrato LFO feeding every unison oscillator's detune
+  const lfo = ctx.createOscillator();
+  lfo.type = "sine";
+  lfo.frequency.value = params.vibSpeed;
+  const lfoGain = ctx.createGain();
+  lfoGain.gain.value = 0;
+  lfo.connect(lfoGain);
+  lfo.start();
+
+  const voiceCount = Math.max(1, Math.round(params.unisonVoices));
+  const spread = params.unisonSpread;
+  const oscillators = [];
+  for (let i = 0; i < voiceCount; i++) {
+    const osc = ctx.createOscillator();
+    osc.type = params.waveform;
+    osc.frequency.value = freq;
+    let offset = 0;
+    if (voiceCount > 1) {
+      offset = (-spread / 2) + (spread * i) / (voiceCount - 1);
+    }
+    osc.detune.value = params.detune + offset;
+    lfoGain.connect(osc.detune);
+    const oscGain = ctx.createGain();
+    oscGain.gain.value = 1 / voiceCount;
+    osc.connect(oscGain);
+    oscGain.connect(voiceGain);
+    osc.start();
+    oscillators.push(osc);
+  }
+
+  return {
+    oscillators, lfo, lfoGain, gain: voiceGain,
+    baseFreq: freq,
+    lastX: null,
+    lastT: null,
+    shakeEnergy: 0,
+    lastSign: 0,
+    lastReversalTime: null,
+    detectedFreq: params.vibSpeed,
+    releasing: false
+  };
+}
+
+function stopVoice(v) {
+  const now = audioCtx.currentTime;
+  const release = Math.max(0.01, params.release);
+  v.gain.gain.cancelScheduledValues(now);
+  v.gain.gain.setValueAtTime(v.gain.gain.value, now);
+  v.gain.gain.linearRampToValueAtTime(0.0001, now + release);
+  setTimeout(() => {
+    try {
+      v.oscillators.forEach((o) => o.stop());
+      v.lfo.stop();
+    } catch (e) {}
+  }, (release + 0.1) * 1000);
+}
+
+function volumeFromTouch(touch) {
+  let radius = null;
+  if (touch.radiusX !== undefined && touch.radiusY !== undefined && (touch.radiusX || touch.radiusY)) {
+    radius = (touch.radiusX + touch.radiusY) / 2;
+  } else if (touch.webkitRadiusX !== undefined) {
+    radius = (touch.webkitRadiusX + touch.webkitRadiusY) / 2;
+  }
+  let vol;
+  if (radius !== null && radius > 0) {
+    const norm = Math.min(1, (radius / 25) * params.touchSens);
+    vol = 0.15 + norm * 0.85;
+  } else if (touch.force !== undefined && touch.force > 0) {
+    vol = 0.15 + Math.min(1, touch.force * params.touchSens) * 0.85;
+  } else {
+    vol = 0.75;
+  }
+  return Math.max(0.05, Math.min(1, vol));
+}
+
+function keyDown(keyEl, freq, touch, identifier) {
+  ensureAudio();
+  if (audioCtx.state === "suspended") audioCtx.resume();
+
+  if (params.monoMode) {
+    monoKeyDown(keyEl, freq, touch, identifier);
+    return;
+  }
+
+  const v = createVoice(freq);
+  const vol = volumeFromTouch(touch);
+  const now = audioCtx.currentTime;
+
+  const attack = Math.max(0.001, params.attack);
+  const decay = Math.max(0.001, params.decay);
+  const sustainLevel = Math.max(0, Math.min(1, params.sustain)) * vol;
+
+  v.gain.gain.cancelScheduledValues(now);
+  v.gain.gain.setValueAtTime(0.0001, now);
+  v.gain.gain.linearRampToValueAtTime(vol, now + attack);
+  v.gain.gain.linearRampToValueAtTime(Math.max(0.0001, sustainLevel), now + attack + decay);
+
+  v.lastX = touch.clientX;
+  v.lastT = performance.now();
+  v.keyEl = keyEl;
+  v.currentVol = vol;
+  v.sustainLevel = sustainLevel;
+
+  keyEl.classList.add("active");
+  const meter = keyEl.querySelector(".meter");
+  if (meter) meter.style.height = (vol * 100).toFixed(0) + "%";
+
+  voices[identifier] = v;
+}
+
+function glideVoiceTo(v, freq) {
+  const now = audioCtx.currentTime;
+  const glide = Math.max(0.001, params.glideTime);
+  v.oscillators.forEach((osc) => {
+    const current = Math.max(1, osc.frequency.value);
+    osc.frequency.cancelScheduledValues(now);
+    osc.frequency.setValueAtTime(current, now);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(1, freq), now + glide);
+  });
+  v.baseFreq = freq;
+}
+
+function monoKeyDown(keyEl, freq, touch, identifier) {
+  const vol = volumeFromTouch(touch);
+  monoState.stack.push({ identifier, freq, keyEl, touch });
+  monoState.activeIdentifier = identifier;
+
+  keyEl.classList.add("active");
+  const meter = keyEl.querySelector(".meter");
+  if (meter) meter.style.height = (vol * 100).toFixed(0) + "%";
+
+  const now = audioCtx.currentTime;
+  const sustainLevel = Math.max(0, Math.min(1, params.sustain)) * vol;
+
+  if (!monoState.voice) {
+    // first note: create the single voice with a normal ADSR attack
+    const v = createVoice(freq);
+    const attack = Math.max(0.001, params.attack);
+    const decay = Math.max(0.001, params.decay);
+    v.gain.gain.cancelScheduledValues(now);
+    v.gain.gain.setValueAtTime(0.0001, now);
+    v.gain.gain.linearRampToValueAtTime(vol, now + attack);
+    v.gain.gain.linearRampToValueAtTime(Math.max(0.0001, sustainLevel), now + attack + decay);
+    v.lastX = touch.clientX;
+    v.lastT = performance.now();
+    v.keyEl = keyEl;
+    v.currentVol = vol;
+    v.sustainLevel = sustainLevel;
+    monoState.voice = v;
+  } else {
+    // a note is already sounding: glide to the new pitch instead of retriggering
+    const v = monoState.voice;
+    glideVoiceTo(v, freq);
+    v.gain.gain.setTargetAtTime(sustainLevel, now, 0.02);
+    v.keyEl = keyEl;
+    v.currentVol = vol;
+    v.sustainLevel = sustainLevel;
+    v.lastX = touch.clientX;
+    v.lastT = performance.now();
+  }
+}
+
+function applyTouchMotionToVoice(v, touch) {
+  const vol = volumeFromTouch(touch);
+  const now = audioCtx.currentTime;
+  const sustainLevel = Math.max(0, Math.min(1, params.sustain)) * vol;
+  v.gain.gain.setTargetAtTime(sustainLevel, now, 0.03);
+  v.currentVol = vol;
+  const meter = v.keyEl && v.keyEl.querySelector(".meter");
+  if (meter) meter.style.height = (vol * 100).toFixed(0) + "%";
+
+  const t = performance.now();
+  const dt = Math.max(1, t - v.lastT);
+  const dx = touch.clientX - v.lastX;
+  const speedPxMs = Math.abs(dx) / dt;
+
+  const instant = speedPxMs * 40 * params.vibSens;
+  v.shakeEnergy = v.shakeEnergy * 0.75 + instant * 0.25;
+  v.shakeEnergy = Math.min(1, v.shakeEnergy);
+
+  const moveThreshold = 1.5 / params.vibSens;
+  if (Math.abs(dx) > moveThreshold) {
+    const sign = dx > 0 ? 1 : -1;
+    if (v.lastSign !== 0 && sign !== v.lastSign) {
+      if (v.lastReversalTime !== null) {
+        const halfPeriodMs = t - v.lastReversalTime;
+        if (halfPeriodMs > 30 && halfPeriodMs < 1000) {
+          const freqHz = 1000 / (2 * halfPeriodMs);
+          const clamped = Math.max(0.5, Math.min(14, freqHz));
+          v.detectedFreq = v.detectedFreq * 0.6 + clamped * 0.4;
+        }
+      }
+      v.lastReversalTime = t;
+    }
+    v.lastSign = sign;
+  }
+
+  const depthCents = v.shakeEnergy * params.vibDepth;
+  const speedMultiplier = params.vibSpeed / 5;
+  const rateHz = Math.max(0.5, Math.min(14, v.detectedFreq * speedMultiplier));
+  v.lfoGain.gain.setTargetAtTime(depthCents, audioCtx.currentTime, 0.05);
+  v.lfo.frequency.setTargetAtTime(rateHz, audioCtx.currentTime, 0.08);
+
+  v.lastX = touch.clientX;
+  v.lastT = t;
+}
+
+function keyMove(touch, identifier) {
+  if (params.monoMode) {
+    if (identifier !== monoState.activeIdentifier || !monoState.voice) return;
+    applyTouchMotionToVoice(monoState.voice, touch);
+    return;
+  }
+  const v = voices[identifier];
+  if (!v) return;
+  applyTouchMotionToVoice(v, touch);
+}
+
+function keyUp(identifier) {
+  if (params.monoMode) {
+    monoKeyUp(identifier);
+    return;
+  }
+  const v = voices[identifier];
+  if (!v) return;
+  if (v.keyEl) v.keyEl.classList.remove("active");
+  const meter = v.keyEl && v.keyEl.querySelector(".meter");
+  if (meter) meter.style.height = "0%";
+  stopVoice(v);
+  delete voices[identifier];
+}
+
+function monoKeyUp(identifier) {
+  const idx = monoState.stack.findIndex((n) => n.identifier === identifier);
+  if (idx === -1) return;
+  const released = monoState.stack[idx];
+  monoState.stack.splice(idx, 1);
+
+  if (released.keyEl) released.keyEl.classList.remove("active");
+  const releasedMeter = released.keyEl && released.keyEl.querySelector(".meter");
+  if (releasedMeter) releasedMeter.style.height = "0%";
+
+  if (!monoState.voice) return;
+
+  if (monoState.stack.length === 0) {
+    // no notes held anymore: release the voice normally
+    stopVoice(monoState.voice);
+    monoState.voice = null;
+    monoState.activeIdentifier = null;
+  } else {
+    // return to (glide to) the most recently held remaining note
+    const top = monoState.stack[monoState.stack.length - 1];
+    monoState.activeIdentifier = top.identifier;
+    glideVoiceTo(monoState.voice, top.freq);
+    monoState.voice.keyEl = top.keyEl;
+  }
+}
+
+/* ---------------- keyboard UI ---------------- */
+
+const keysEl = document.getElementById("keys");
+let keyElements = [];
+
+function buildKeyboard() {
+  keysEl.innerHTML = "";
+  keyElements = [];
+
+  const baseOctave = params.octave;
+  const notes = [];
+  for (let octOffset = 0; octOffset < 2; octOffset++) {
+    const oct = baseOctave + octOffset;
+    for (let pc = 0; pc < 12; pc++) {
+      const midi = 12 * (oct + 1) + pc;
+      notes.push({
+        name: NOTE_LETTERS[pc] + oct,
+        freq: midiToFreq(midi),
+        isWhite: WHITE_PC.has(pc),
+        pc,
+        octOffset
+      });
+    }
+  }
+
+  notes.forEach((note) => {
+    const key = document.createElement("div");
+    key.className = "key " + (note.isWhite ? "white" : "black");
+    key.innerHTML = '<div class="meter"></div><span class="label">' + note.name + "</span>";
+    keysEl.appendChild(key);
+    attachKeyEvents(key, note.freq);
+    keyElements.push({ el: key, note });
+  });
+
+  layoutKeys();
+}
+
+function layoutKeys() {
+  const whiteW = params.whiteW * params.widthScale;
+  const blackW = params.blackW * params.widthScale;
+  const gap = 3 * params.widthScale;
+
+  const whites = keyElements.filter((k) => k.note.isWhite);
+  whites.forEach((k, pos) => {
+    k.el.style.left = (pos * (whiteW + gap)) + "px";
+    k.el.style.width = whiteW + "px";
+  });
+
+  const blacks = keyElements.filter((k) => !k.note.isWhite);
+  blacks.forEach((k) => {
+    const localWhitePos = BLACK_AFTER_WHITE_LOCAL[k.note.pc] + k.note.octOffset * 7;
+    const whiteLeft = localWhitePos * (whiteW + gap);
+    const centerX = whiteLeft + whiteW;
+    k.el.style.left = (centerX - blackW / 2) + "px";
+    k.el.style.width = blackW + "px";
+  });
+
+  const totalWidth = whites.length * (whiteW + gap) - gap;
+  keysEl.style.width = totalWidth + "px";
+}
+
+function attachKeyEvents(key, freq) {
+  key.addEventListener("touchstart", (e) => {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      keyDown(key, freq, t, t.identifier);
+    }
+  }, { passive: false });
+
+  key.addEventListener("touchmove", (e) => {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      keyMove(t, t.identifier);
+    }
+  }, { passive: false });
+
+  const endHandler = (e) => {
+    for (const t of e.changedTouches) {
+      keyUp(t.identifier);
+    }
+  };
+  key.addEventListener("touchend", endHandler);
+  key.addEventListener("touchcancel", endHandler);
+
+  let mouseDown = false;
+  key.addEventListener("mousedown", (e) => {
+    mouseDown = true;
+    keyDown(key, freq, { clientX: e.clientX, force: 0.6 }, "mouse" + freq);
+  });
+  key.addEventListener("mousemove", (e) => {
+    if (mouseDown) keyMove({ clientX: e.clientX, force: 0.6 }, "mouse" + freq);
+  });
+  window.addEventListener("mouseup", () => {
+    if (mouseDown) { mouseDown = false; keyUp("mouse" + freq); }
+  });
+}
+
+buildKeyboard();
+
+/* ---------------- UI bindings ---------------- */
+
+const CSS_VAR_MAP = {
+  whiteW: "--white-w", whiteH: "--white-h",
+  blackW: "--black-w", blackH: "--black-h",
+  whiteOffsetY: "--white-offset-y", blackOffsetY: "--black-offset-y"
+};
+
+function bindSlider(id, key, decimals) {
+  const el = document.getElementById(id);
+  const out = document.getElementById(id + "Val");
+  const update = () => {
+    const v = parseFloat(el.value);
+    params[key] = v;
+    out.textContent = decimals ? v.toFixed(decimals) : v;
+    if (CSS_VAR_MAP[key]) {
+      document.documentElement.style.setProperty(CSS_VAR_MAP[key], v + "px");
+    }
+    if (key === "octave") {
+      buildKeyboard();
+    } else if (["whiteW", "blackW", "blackH", "whiteH", "widthScale"].includes(key)) {
+      layoutKeys();
+    } else if (key === "distAmount") {
+      updateDistortion();
+    } else if (key === "eqLow" || key === "eqMid" || key === "eqHigh") {
+      updateEQ();
+    } else if (key === "compThreshold" || key === "compRatio") {
+      updateComp();
+    } else if (key === "delayTime" || key === "delayFeedback" || key === "delayMix") {
+      updateDelay();
+    } else if (key === "reverbMix") {
+      updateReverb();
+    } else if (key === "reverbSize") {
+      rebuildReverbImpulse();
+    }
+  };
+  el.addEventListener("input", update);
+  update();
+}
+
+bindSlider("octave", "octave", 0);
+bindSlider("widthScale", "widthScale", 2);
+bindSlider("whiteW", "whiteW", 0);
+bindSlider("whiteH", "whiteH", 0);
+bindSlider("blackW", "blackW", 0);
+bindSlider("blackH", "blackH", 0);
+bindSlider("whiteOffsetY", "whiteOffsetY", 0);
+bindSlider("blackOffsetY", "blackOffsetY", 0);
+bindSlider("touchSens", "touchSens", 1);
+bindSlider("vibDepth", "vibDepth", 0);
+bindSlider("vibSpeed", "vibSpeed", 1);
+bindSlider("vibSens", "vibSens", 1);
+
+bindSlider("detune", "detune", 0);
+bindSlider("unisonVoices", "unisonVoices", 0);
+bindSlider("unisonSpread", "unisonSpread", 0);
+
+bindSlider("attack", "attack", 3);
+bindSlider("decay", "decay", 3);
+bindSlider("sustain", "sustain", 2);
+bindSlider("release", "release", 3);
+bindSlider("glideTime", "glideTime", 2);
+
+bindSlider("distAmount", "distAmount", 0);
+bindSlider("eqLow", "eqLow", 1);
+bindSlider("eqMid", "eqMid", 1);
+bindSlider("eqHigh", "eqHigh", 1);
+bindSlider("compThreshold", "compThreshold", 0);
+bindSlider("compRatio", "compRatio", 0);
+bindSlider("delayTime", "delayTime", 2);
+bindSlider("delayFeedback", "delayFeedback", 2);
+bindSlider("delayMix", "delayMix", 2);
+bindSlider("reverbSize", "reverbSize", 1);
+bindSlider("reverbMix", "reverbMix", 2);
+
+document.getElementById("waveform").addEventListener("change", (e) => {
+  params.waveform = e.target.value;
+});
+
+function bindOnOff(btnId, key, updateFn) {
+  const btn = document.getElementById(btnId);
+  btn.addEventListener("click", () => {
+    params[key] = !params[key];
+    btn.classList.toggle("on", params[key]);
+    btn.textContent = params[key] ? "オン" : "オフ";
+    updateFn();
+  });
+}
+bindOnOff("distOn", "distOn", updateDistortion);
+bindOnOff("compOn", "compOn", updateComp);
+bindOnOff("delayOn", "delayOn", updateDelay);
+bindOnOff("reverbOn", "reverbOn", updateReverb);
+
+document.getElementById("monoOn").addEventListener("click", (e) => {
+  // stop any currently sounding notes cleanly before switching modes
+  Object.keys(voices).forEach((id) => keyUp(id));
+  if (monoState.voice) {
+    stopVoice(monoState.voice);
+    monoState.voice = null;
+  }
+  monoState.stack = [];
+  monoState.activeIdentifier = null;
+  document.querySelectorAll(".key.active").forEach((el) => el.classList.remove("active"));
+  document.querySelectorAll(".key .meter").forEach((el) => (el.style.height = "0%"));
+
+  params.monoMode = !params.monoMode;
+  e.target.classList.toggle("on", params.monoMode);
+  e.target.textContent = params.monoMode ? "オン" : "オフ";
+});
+
+document.getElementById("distHard").addEventListener("click", () => {
+  params.distType = "hard";
+  document.getElementById("distHard").classList.add("on");
+  document.getElementById("distSoft").classList.remove("on");
+  updateDistortion();
+});
+document.getElementById("distSoft").addEventListener("click", () => {
+  params.distType = "soft";
+  document.getElementById("distSoft").classList.add("on");
+  document.getElementById("distHard").classList.remove("on");
+  updateDistortion();
+});
+
+/* ---------------- oscilloscope ---------------- */
+
+const canvas = document.getElementById("scope");
+const ctx2d = canvas.getContext("2d");
+function resizeCanvas() {
+  canvas.width = canvas.clientWidth * devicePixelRatio;
+  canvas.height = canvas.clientHeight * devicePixelRatio;
+}
+window.addEventListener("resize", resizeCanvas);
+resizeCanvas();
+
+let previousWaveform = null;
+const VISIBLE_SAMPLES = 512;
+const COMPARE_STRIDE = 6;
+
+function drawScope() {
+  requestAnimationFrame(drawScope);
+  if (!analyser) return;
+  const bufferLength = analyser.fftSize;
+  const dataArray = new Uint8Array(bufferLength);
+  analyser.getByteTimeDomainData(dataArray);
+
+  const maxOffset = bufferLength - VISIBLE_SAMPLES;
+
+  let bestOffset = 0;
+  if (previousWaveform) {
+    let bestScore = Infinity;
+    for (let offset = 0; offset <= maxOffset; offset++) {
+      let score = 0;
+      for (let i = 0; i < VISIBLE_SAMPLES; i += COMPARE_STRIDE) {
+        const diff = dataArray[offset + i] - previousWaveform[i];
+        score += diff * diff;
+      }
+      if (score < bestScore) {
+        bestScore = score;
+        bestOffset = offset;
+      }
+    }
+  } else {
+    for (let i = 1; i < maxOffset; i++) {
+      if (dataArray[i - 1] < 128 && dataArray[i] >= 128) {
+        bestOffset = i;
+        break;
+      }
+    }
+  }
+
+  const windowData = dataArray.slice(bestOffset, bestOffset + VISIBLE_SAMPLES);
+  previousWaveform = windowData;
+
+  ctx2d.clearRect(0, 0, canvas.width, canvas.height);
+  ctx2d.lineWidth = 2 * devicePixelRatio;
+  ctx2d.strokeStyle = "#5fe0a5";
+  ctx2d.beginPath();
+
+  const sliceWidth = canvas.width / VISIBLE_SAMPLES;
+  let x = 0;
+  for (let i = 0; i < VISIBLE_SAMPLES; i++) {
+    const v = windowData[i] / 128.0;
+    const y = (v * canvas.height) / 2;
+    if (i === 0) ctx2d.moveTo(x, y);
+    else ctx2d.lineTo(x, y);
+    x += sliceWidth;
+  }
+  ctx2d.stroke();
+}
+</script>
+</body>
+</html>
