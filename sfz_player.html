@@ -272,10 +272,12 @@
 <div id="app">
   <header>
     <h1>SFZ<span>/SF2</span> Player</h1>
-    <p class="sub">SFZまたはSF2音源のZIP、あるいはSF2ファイル単体をアップロードして鍵盤で演奏できます。鍵盤はドラッグで移動、右下の角でサイズ変更ができます。</p>
+    <p class="sub">ZIP・SFZ単体・SF2単体、または複数ファイル/フォルダ選択（sfzとwavをまとめて）でアップロードして鍵盤で演奏できます。鍵盤はドラッグで移動、右下の角でサイズ変更ができます。</p>
     <div class="deck">
       <label class="btn primary" for="zipInput">ファイルを開く</label>
-      <input type="file" id="zipInput" accept=".zip,.sf2">
+      <input type="file" id="zipInput" accept=".zip,.sf2,.sfz">
+      <label class="btn" for="folderInput">複数選択/フォルダ</label>
+      <input type="file" id="folderInput" webkitdirectory multiple>
       <select id="sfzSelect" disabled>
         <option>まずファイルを読み込んでください</option>
       </select>
@@ -317,7 +319,9 @@
 
   // ---------------- Audio ----------------
   const AudioCtx = window.AudioContext || window.webkitAudioContext;
-  const actx = new AudioCtx();
+  let actx;
+  try{ actx = new AudioCtx({ sampleRate: 48000 }); }
+  catch(e){ actx = new AudioCtx(); }
   const masterGain = actx.createGain();
   masterGain.gain.value = 0.9;
   const analyser = actx.createAnalyser();
@@ -353,6 +357,7 @@
   let baseOctave = 3;       // C of leftmost white key => baseOctave*? (we use MIDI note directly)
   let sf2Data = null;       // parsed sf2 structure for the currently loaded sf2 file
   let sf2Presets = [];      // [{name,bank,program,regions}]
+  const warnedMissingSamples = new Set();
 
   const statusEl = document.getElementById('status');
   const sfzSelect = document.getElementById('sfzSelect');
@@ -375,6 +380,12 @@
     statusEl.className = 'status' + (cls ? ' '+cls : '');
   }
 
+  function isJunkEntry(relPath){
+    const parts = relPath.split('/');
+    const base = parts[parts.length-1];
+    return relPath.startsWith('__MACOSX/') || relPath.includes('/__MACOSX/') || base.startsWith('._') || base === '.DS_Store';
+  }
+
   // ---------------- File / ZIP handling ----------------
   document.getElementById('zipInput').addEventListener('change', async (e)=>{
     const file = e.target.files[0];
@@ -388,17 +399,18 @@
         zipEntriesLower = {};
         zip.forEach((relPath, entry)=>{
           if(entry.dir) return;
+          if(isJunkEntry(relPath)) return;
           zipEntriesLower[relPath.toLowerCase()] = entry;
           const lp = relPath.toLowerCase();
           if(lp.endsWith('.sfz') || lp.endsWith('.sf2')) instrumentFiles.push(relPath);
         });
-      } else if(lowerName.endsWith('.sf2')){
+      } else if(lowerName.endsWith('.sf2') || lowerName.endsWith('.sfz')){
         zip = null;
         zipEntriesLower = {};
         zipEntriesLower[lowerName] = {direct:true, file};
         instrumentFiles = [file.name];
       } else {
-        setStatus('ZIPまたはSF2ファイルを選んでください', 'err');
+        setStatus('ZIP・SFZ・SF2ファイルを選んでください', 'err');
         return;
       }
 
@@ -415,6 +427,42 @@
       sfzSelect.disabled = false;
       reloadBtn.disabled = false;
       setStatus(`${instrumentFiles.length}件の音源を検出`, 'ok');
+      await loadInstrumentFile(instrumentFiles[0]);
+    }catch(err){
+      console.error(err);
+      setStatus('読み込みに失敗: '+err.message, 'err');
+    }
+  });
+
+  // Multi-file / folder picker: lets a person select a loose .sfz plus its .wav
+  // samples together (or a whole folder) without having to zip them first.
+  document.getElementById('folderInput').addEventListener('change', async (e)=>{
+    const files = Array.from(e.target.files || []);
+    if(files.length === 0) return;
+    try{
+      zip = null;
+      zipEntriesLower = {};
+      const instrumentFiles = [];
+      files.forEach(f=>{
+        const relPath = (f.webkitRelativePath && f.webkitRelativePath.length) ? f.webkitRelativePath : f.name;
+        if(isJunkEntry(relPath)) return;
+        zipEntriesLower[relPath.toLowerCase()] = {direct:true, file:f};
+        const lp = relPath.toLowerCase();
+        if(lp.endsWith('.sfz') || lp.endsWith('.sf2')) instrumentFiles.push(relPath);
+      });
+      if(instrumentFiles.length === 0){
+        setStatus('選択の中にsfz/sf2ファイルが見つかりません', 'err');
+        return;
+      }
+      sfzSelect.innerHTML = '';
+      instrumentFiles.forEach(p=>{
+        const opt = document.createElement('option');
+        opt.value = p; opt.textContent = p;
+        sfzSelect.appendChild(opt);
+      });
+      sfzSelect.disabled = false;
+      reloadBtn.disabled = false;
+      setStatus(`${instrumentFiles.length}件の音源を検出（${files.length}ファイル選択）`, 'ok');
       await loadInstrumentFile(instrumentFiles[0]);
     }catch(err){
       console.error(err);
@@ -533,6 +581,15 @@
         if(lokey === null || hikey === null) continue;
         const tune = r.tune ? parseFloat(r.tune) : 0; // cents
         const volumeDb = r.volume ? parseFloat(r.volume) : 0;
+        const offsetFrames = r.offset !== undefined ? parseInt(r.offset,10) : 0;
+        const endFrames = r.end !== undefined ? parseInt(r.end,10) : undefined;
+        const loopModeStr = (r.loop_mode || r.loopmode || '').toLowerCase();
+        let loop = false, loopStartFrames, loopEndFrames;
+        if(loopModeStr.indexOf('loop') !== -1){
+          loop = true;
+          loopStartFrames = r.loop_start !== undefined ? parseInt(r.loop_start,10) : (r.loopstart !== undefined ? parseInt(r.loopstart,10) : offsetFrames);
+          loopEndFrames = r.loop_end !== undefined ? parseInt(r.loop_end,10) : (r.loopend !== undefined ? parseInt(r.loopend,10) : endFrames);
+        }
         let samplePath = r.sample.replace(/\\/g,'/');
         // resolve relative to sfz dir
         let fullPath = dir + samplePath;
@@ -543,12 +600,15 @@
           lokey, hikey, pitchCenter,
           tune, volumeDb,
           samplePath: fullPath,
+          offsetFrames, endFrames,
+          loop, loopStartFrames, loopEndFrames,
           lovel: r.lovel ? parseInt(r.lovel,10) : 0,
           hivel: r.hivel ? parseInt(r.hivel,10) : 127,
         });
       }
 
       sampleCache = {};
+      warnedMissingSamples.clear();
       sf2Data = null; sf2Presets = [];
       presetSelect.innerHTML = '';
       setStatus(`${regions.length}個のリージョンを読み込みました`, 'ok');
@@ -721,7 +781,15 @@
           if(lokey>hikey || lovel>hivel) continue;
           const shdrEntry = shdr[z.sampleIndex];
           if(!shdrEntry) continue;
-          const pitchCenter = z.rootKey!==-1 ? z.rootKey : shdrEntry.originalPitch;
+          // Some SFZ->SF2 converters write garbage (0, or a running per-zone index)
+          // into overridingRootKey instead of leaving it unset. For single-key zones
+          // (lokey===hikey — the common one-sample-per-note layout) the key itself is
+          // by far the most reliable indicator of intended pitch, so prefer it outright.
+          const rootKeyValid = (z.rootKey !== -1 && z.rootKey !== 0);
+          let pitchCenter;
+          if(lokey === hikey) pitchCenter = lokey;
+          else if(rootKeyValid) pitchCenter = z.rootKey;
+          else pitchCenter = shdrEntry.originalPitch;
           const tuneCents = z.coarseTune*100 + z.fineTune + (shdrEntry.pitchCorrection||0);
           const volumeDb = -(z.initAtten)/10;
           const loop = (z.sampleModes === 1 || z.sampleModes === 3);
@@ -752,6 +820,7 @@
       sf2Data = { buffer: buf, smplChunk: parsed.smplChunk, shdr: parsed.shdr };
       sf2Presets = parsed.presets.filter(p => p.regions.length > 0);
       sampleCache = {};
+      warnedMissingSamples.clear();
 
       presetSelect.innerHTML = '';
       sf2Presets.forEach((p, idx)=>{
@@ -784,7 +853,7 @@
       const dv = new DataView(sf2Data.buffer);
       const frameCount = Math.max(0, s.end - s.start);
       const byteOffset = sf2Data.smplChunk.start + s.start*2;
-      const buffer = actx.createBuffer(1, Math.max(1,frameCount), s.sampleRate || 44100);
+      const buffer = actx.createBuffer(1, Math.max(1,frameCount), (s.sampleRate && s.sampleRate > 0) ? s.sampleRate : actx.sampleRate);
       const chan = buffer.getChannelData(0);
       for(let i=0;i<frameCount;i++){
         chan[i] = dv.getInt16(byteOffset + i*2, true) / 32768;
@@ -830,7 +899,14 @@
       console.warn('sample decode failed', r, err);
       return;
     }
-    if(!buffer) return;
+    if(!buffer){
+      const id = r.kind === 'sf2' ? `sample #${r.sampleIndex}` : r.samplePath;
+      if(!warnedMissingSamples.has(id)){
+        warnedMissingSamples.add(id);
+        setStatus(`サンプルが見つかりません: ${id}（sfzと同じフォルダのwavも「複数選択/フォルダ」で一緒に選んでください）`, 'err');
+      }
+      return;
+    }
     unlockAudio();
     // stop any existing voice on this note
     noteOff(note, true);
@@ -838,16 +914,32 @@
     src.buffer = buffer;
     const semis = (note - r.pitchCenter) + (r.tune/100);
     src.playbackRate.value = Math.pow(2, semis/12);
-    if(r.loop){
+
+    // Sample slicing / looping.
+    let startOffsetSec = 0;
+    let durationSec;
+    if(r.kind === 'sfz'){
+      startOffsetSec = (r.offsetFrames || 0) / buffer.sampleRate;
+      if(r.endFrames !== undefined && !isNaN(r.endFrames)){
+        durationSec = Math.max(0, (r.endFrames - (r.offsetFrames||0) + 1) / buffer.sampleRate);
+      }
+      if(r.loop){
+        src.loop = true;
+        src.loopStart = (r.loopStartFrames || 0) / buffer.sampleRate;
+        src.loopEnd = (r.loopEndFrames !== undefined ? r.loopEndFrames : buffer.length) / buffer.sampleRate;
+      }
+    } else if(r.loop){
       src.loop = true;
       src.loopStart = r.loopStartSec;
       src.loopEnd = r.loopEndSec;
     }
+
     const g = actx.createGain();
     const linGain = Math.pow(10, r.volumeDb/20) * ((vel||100)/127);
     g.gain.value = Math.min(1.2, linGain || 0.9);
     src.connect(g).connect(masterGain);
-    src.start();
+    if(durationSec !== undefined) src.start(0, startOffsetSec, durationSec);
+    else src.start(0, startOffsetSec);
     voices[note] = {src, gain:g};
     src.onended = ()=>{ if(voices[note] && voices[note].src === src) delete voices[note]; };
   }
