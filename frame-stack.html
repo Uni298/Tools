@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>動画フレーム重ね合わせツール</title>
+<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    max-width: 720px;
+    margin: 40px auto;
+    padding: 0 20px;
+    color: #222;
+    background: #fafafa;
+  }
+  h1 { font-size: 20px; font-weight: 600; }
+  .card {
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  label { display: block; margin: 10px 0 4px; font-size: 14px; color: #555; }
+  .radioRow { display: flex; gap: 20px; margin: 8px 0 4px; font-size: 14px; }
+  .radioRow label { display: flex; align-items: center; gap: 6px; margin: 0; }
+  button {
+    background: #222;
+    color: #fff;
+    border: none;
+    padding: 10px 18px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    margin-top: 10px;
+    margin-right: 8px;
+  }
+  button:disabled { background: #999; cursor: default; }
+  button.secondary { background: #4a90d9; }
+  #progressWrap { margin-top: 12px; display: none; }
+  #progressBar {
+    height: 8px;
+    background: #eee;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  #progressFill { height: 100%; background: #4a90d9; width: 0%; transition: width 0.1s linear; }
+  #status { font-size: 13px; color: #666; margin-top: 6px; }
+  canvas { max-width: 100%; border: 1px solid #ddd; border-radius: 8px; margin-top: 14px; }
+  #downloadBtn { display: none; background: #2c8a4b; }
+  #convertBtn { display: none; }
+  video { display: none; }
+  .note { font-size: 12px; color: #888; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<h1>動画フレーム重ね合わせツール</h1>
+<p style="color:#555; font-size:14px;">
+動画の全フレームをブラウザ内で再生・キャプチャし、1枚の画像に重ね合わせます。
+各フレームの不透明度は指定せず、全フレームの平均になるよう自動計算されます。
+動画はアップロードされず、すべての処理はこのページ内（ブラウザ内）で完結します。
+</p>
+
+<div class="card">
+  <label>動画ファイルを選択</label>
+  <input type="file" id="videoInput" accept="video/*">
+
+  <label>重ね合わせ方式</label>
+  <div class="radioRow">
+    <label><input type="radio" name="mode" value="average" checked> 全フレーム平均（自動計算・推奨）</label>
+    <label><input type="radio" name="mode" value="lighten"> 比較(明)で重ねる（明るい部分を優先、軌跡向け）</label>
+  </div>
+
+  <div>
+    <button id="processBtn" disabled>全フレームを処理する</button>
+    <button id="convertBtn" class="secondary">MP4に変換してから読み込む</button>
+  </div>
+
+  <div id="progressWrap">
+    <div id="progressBar"><div id="progressFill"></div></div>
+    <div id="status"></div>
+  </div>
+</div>
+
+<div class="card" id="resultCard" style="display:none;">
+  <canvas id="outputCanvas"></canvas>
+  <br>
+  <button id="downloadBtn">画像をダウンロード</button>
+</div>
+
+<video id="video" muted playsinline></video>
+
+<script>
+const videoInput = document.getElementById('videoInput');
+const processBtn = document.getElementById('processBtn');
+const convertBtn = document.getElementById('convertBtn');
+const video = document.getElementById('video');
+const progressWrap = document.getElementById('progressWrap');
+const progressFill = document.getElementById('progressFill');
+const statusEl = document.getElementById('status');
+const resultCard = document.getElementById('resultCard');
+const outputCanvas = document.getElementById('outputCanvas');
+const downloadBtn = document.getElementById('downloadBtn');
+
+let videoLoaded = false;
+let duration = 0;
+let currentFile = null;
+let ffmpegInstance = null;
+
+function setStatus(text, isError) {
+  statusEl.style.color = isError ? '#c0392b' : '#666';
+  statusEl.textContent = text;
+}
+
+async function getFFmpeg() {
+  if (ffmpegInstance) return ffmpegInstance;
+  const { createFFmpeg } = FFmpeg;
+  ffmpegInstance = createFFmpeg({
+    log: false,
+    corePath: 'https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
+  });
+  await ffmpegInstance.load();
+  return ffmpegInstance;
+}
+
+function loadVideoFromFile(file) {
+  videoLoaded = false;
+  processBtn.disabled = true;
+  convertBtn.style.display = 'none';
+  progressWrap.style.display = 'block';
+  setStatus('動画を読み込み中...');
+
+  const url = URL.createObjectURL(file);
+  video.src = url;
+
+  const onError = () => {
+    setStatus('この動画を読み込めませんでした。ブラウザがこの形式/コーデック（.movのHEVCなど）に対応していない可能性があります。下の「MP4に変換してから読み込む」をお試しください。', true);
+    processBtn.disabled = true;
+    convertBtn.style.display = 'inline-block';
+  };
+
+  video.addEventListener('error', onError, { once: true });
+
+  video.addEventListener('loadedmetadata', function onLoaded() {
+    video.removeEventListener('error', onError);
+    if (!video.videoWidth || !video.videoHeight) {
+      onError();
+      return;
+    }
+    videoLoaded = true;
+    duration = video.duration;
+    processBtn.disabled = false;
+    convertBtn.style.display = 'none';
+    setStatus(`動画を読み込みました（長さ: ${duration.toFixed(1)}秒, ${video.videoWidth}x${video.videoHeight}）`);
+  }, { once: true });
+
+  setTimeout(() => {
+    if (!videoLoaded) onError();
+  }, 8000);
+}
+
+videoInput.addEventListener('change', () => {
+  const file = videoInput.files[0];
+  if (!file) return;
+  currentFile = file;
+  loadVideoFromFile(file);
+});
+
+convertBtn.addEventListener('click', async () => {
+  if (!currentFile) return;
+  convertBtn.disabled = true;
+  processBtn.disabled = true;
+  setStatus('MP4に変換する準備をしています（初回はffmpegの読み込みに時間がかかります）...');
+
+  try {
+    const ffmpeg = await getFFmpeg();
+    const { fetchFile } = FFmpeg;
+
+    const inName = 'input' + (currentFile.name.match(/\.[^.]+$/)?.[0] || '.mov');
+    const outName = 'output.mp4';
+
+    ffmpeg.setProgress(({ ratio }) => {
+      if (ratio >= 0 && ratio <= 1) {
+        progressFill.style.width = Math.round(ratio * 100) + '%';
+        setStatus(`MP4に変換中... ${Math.round(ratio * 100)}%`);
+      }
+    });
+
+    setStatus('動画を変換用に読み込んでいます...');
+    ffmpeg.FS('writeFile', inName, await fetchFile(currentFile));
+
+    setStatus('MP4に変換中...');
+    await ffmpeg.run('-i', inName, '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-pix_fmt', 'yuv420p', '-c:a', 'aac', outName);
+
+    const data = ffmpeg.FS('readFile', outName);
+    const blob = new Blob([data.buffer], { type: 'video/mp4' });
+
+    setStatus('変換が完了しました。読み込んでいます...');
+    convertBtn.disabled = false;
+    loadVideoFromFile(blob);
+  } catch (e) {
+    console.error(e);
+    setStatus('変換に失敗しました: ' + (e && e.message ? e.message : e), true);
+    convertBtn.disabled = false;
+  }
+});
+
+function getMode() {
+  return document.querySelector('input[name="mode"]:checked').value;
+}
+
+processBtn.addEventListener('click', async () => {
+  if (!videoLoaded) return;
+  processBtn.disabled = true;
+  resultCard.style.display = 'none';
+  downloadBtn.style.display = 'none';
+
+  const mode = getMode();
+  const w = video.videoWidth;
+  const h = video.videoHeight;
+  outputCanvas.width = w;
+  outputCanvas.height = h;
+  const ctx = outputCanvas.getContext('2d');
+  ctx.clearRect(0, 0, w, h);
+
+  const frameCanvas = document.createElement('canvas');
+  frameCanvas.width = w;
+  frameCanvas.height = h;
+  const fctx = frameCanvas.getContext('2d');
+
+  let frameIndex = 0;
+
+  function drawFrame(mediaTime) {
+    frameIndex++;
+    fctx.clearRect(0, 0, w, h);
+    fctx.drawImage(video, 0, 0, w, h);
+
+    if (mode === 'lighten') {
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'lighten';
+    } else {
+      ctx.globalAlpha = 1 / frameIndex;
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    ctx.drawImage(frameCanvas, 0, 0);
+
+    const t = mediaTime !== undefined ? mediaTime : video.currentTime;
+    const pct = Math.min(100, Math.round((t / duration) * 100));
+    progressFill.style.width = pct + '%';
+    setStatus(`処理中... フレーム ${frameIndex}（${t.toFixed(2)}s / ${duration.toFixed(2)}s）`);
+  }
+
+  function finish() {
+    setStatus(`完了しました（全 ${frameIndex} フレームを処理）。`);
+    progressFill.style.width = '100%';
+    resultCard.style.display = 'block';
+    downloadBtn.style.display = 'inline-block';
+    processBtn.disabled = false;
+  }
+
+  video.pause();
+  video.currentTime = 0;
+
+  if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {
+    await new Promise((resolve) => {
+      video.addEventListener('seeked', resolve, { once: true });
+    });
+
+    let ended = false;
+    video.addEventListener('ended', () => { ended = true; }, { once: true });
+
+    function onFrame(now, metadata) {
+      drawFrame(metadata.mediaTime);
+      if (!ended && !video.paused) {
+        video.requestVideoFrameCallback(onFrame);
+      }
+    }
+
+    video.requestVideoFrameCallback(onFrame);
+    await video.play();
+    await new Promise((resolve) => {
+      video.addEventListener('ended', resolve, { once: true });
+    });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    finish();
+  } else {
+    const assumedFps = 30;
+    const step = 1 / assumedFps;
+    let t = 0;
+    while (t < duration) {
+      await new Promise((resolve) => {
+        function onSeeked() {
+          video.removeEventListener('seeked', onSeeked);
+          resolve();
+        }
+        video.addEventListener('seeked', onSeeked);
+        video.currentTime = Math.min(t, duration - 0.001);
+      });
+      drawFrame(t);
+      t += step;
+    }
+    finish();
+  }
+});
+
+downloadBtn.addEventListener('click', () => {
+  const link = document.createElement('a');
+  link.download = 'frame-stack.png';
+  link.href = outputCanvas.toDataURL('image/png');
+  link.click();
+});
+</script>
+
+</body>
+</html>
