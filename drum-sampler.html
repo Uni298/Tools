@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PAD/8 — ドラムサンプラー</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root{
+    --body-bg: #1b1c1e;
+    --panel: #232427;
+    --panel-raised: #2a2b2f;
+    --amber: #e8a13d;
+    --amber-dim: #6b5228;
+    --amber-glow: #ffcf7a;
+    --text: #d8d5cd;
+    --text-dim: #8a8a86;
+    --line: #38393c;
+    --danger: #c96a4f;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0; padding:0; min-height:100%;
+    background: radial-gradient(ellipse at 50% -10%, #26272a 0%, var(--body-bg) 60%);
+    color: var(--text);
+    font-family: "Segoe UI", "Hiragino Sans", "Yu Gothic", sans-serif;
+  }
+  .rack{
+    max-width: 980px;
+    margin: 28px auto 60px;
+    padding: 22px;
+  }
+  .top{
+    display:flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 20px;
+    padding: 0 4px;
+  }
+  .brand{
+    font-family: "Georgia", "Hiragino Mincho ProN", serif;
+    font-size: 28px;
+    letter-spacing: 0.5px;
+    color: var(--text);
+  }
+  .brand span{ color: var(--amber); }
+  .sub{
+    font-size: 12.5px;
+    color: var(--text-dim);
+  }
+  .panel{
+    background: linear-gradient(180deg, var(--panel-raised), var(--panel));
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 18px;
+    margin-bottom: 16px;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset, 0 8px 24px rgba(0,0,0,0.25);
+  }
+  .upload-row{
+    display:flex;
+    align-items:center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .upload-btn{
+    background: var(--amber);
+    color: #221a0c;
+    border: none;
+    padding: 10px 18px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: filter 0.15s ease;
+  }
+  .upload-btn:hover{ filter: brightness(1.08); }
+  .upload-btn:active{ filter: brightness(0.92); }
+  input[type=file]{ display:none; }
+  .zip-status{
+    font-size: 12.5px;
+    color: var(--text-dim);
+  }
+  .master-meter-wrap{
+    display:flex;
+    align-items:center;
+    gap: 10px;
+    margin-left: auto;
+    min-width: 220px;
+  }
+  .master-label{
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    color: var(--text-dim);
+    white-space:nowrap;
+  }
+  .meter-track{
+    flex:1;
+    height: 10px;
+    background: #16171a;
+    border-radius: 5px;
+    overflow:hidden;
+    border: 1px solid var(--line);
+    position:relative;
+  }
+  .meter-fill{
+    height:100%;
+    width:0%;
+    background: linear-gradient(90deg, #4c7a52 0%, var(--amber) 70%, var(--danger) 100%);
+    transition: width 0.06s linear;
+  }
+
+  .body-layout{
+    display:grid;
+    grid-template-columns: 220px 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 680px){
+    .body-layout{ grid-template-columns: 1fr; }
+  }
+
+  .browser-title{
+    font-size: 11.5px;
+    letter-spacing: 0.4px;
+    color: var(--text-dim);
+    margin: 0 0 10px 2px;
+  }
+  .sample-list{
+    list-style:none;
+    margin:0; padding:0;
+    display:flex;
+    flex-direction:column;
+    gap:2px;
+    max-height: 420px;
+    overflow-y:auto;
+  }
+  .folder-item{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    padding: 7px 6px;
+    font-size: 12px;
+    color: var(--text-dim);
+    cursor:pointer;
+    border-radius: 5px;
+    user-select:none;
+  }
+  .folder-item:hover{ background: var(--panel-raised); color: var(--text); }
+  .folder-item .caret{
+    display:inline-block;
+    width:9px;
+    transition: transform 0.12s ease;
+    flex-shrink:0;
+  }
+  .folder-item.collapsed .caret{ transform: rotate(-90deg); }
+  .folder-children{
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+    margin: 2px 0 4px 0;
+  }
+  .folder-children.collapsed{ display:none; }
+  .folder-group{
+    display:flex;
+    flex-direction:column;
+  }
+  .sample-item{
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 9px 10px;
+    font-size: 12.5px;
+    cursor: grab;
+    display:flex;
+    align-items:center;
+    justify-content: space-between;
+    gap:8px;
+    margin-left: 15px;
+  }
+  .sample-item:hover{ border-color: var(--amber-dim); }
+  .sample-item.dragging{ opacity:0.4; }
+  .sample-item .name{
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .sample-item .preview-btn{
+    flex-shrink:0;
+    width:22px; height:22px;
+    border-radius:50%;
+    border:1px solid var(--line);
+    background: var(--panel-raised);
+    color: var(--text-dim);
+    font-size: 10px;
+    cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .sample-item .preview-btn:hover{ color: var(--amber); border-color: var(--amber-dim); }
+  .empty-note{
+    font-size: 12.5px;
+    color: var(--text-dim);
+    line-height:1.6;
+    padding: 6px 2px;
+  }
+
+  .pads{
+    display:grid;
+    grid-template-columns: repeat(4, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+    gap: 14px;
+  }
+  .pad{
+    position:relative;
+    aspect-ratio: 1 / 0.85;
+    background: linear-gradient(160deg, #2f3034, #222327);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    display:flex;
+    flex-direction:column;
+    justify-content: flex-end;
+    padding: 10px;
+    cursor:pointer;
+    user-select:none;
+    transition: transform 0.05s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+    overflow:hidden;
+  }
+  .pad::before{
+    content:"";
+    position:absolute;
+    top:0; left:0; right:0;
+    height: 3px;
+    background: var(--amber-dim);
+    transition: background 0.08s ease, box-shadow 0.08s ease;
+  }
+  .pad.loaded::before{ background: var(--amber); }
+  .pad.hit::before{
+    background: var(--amber-glow);
+    box-shadow: 0 0 12px 1px var(--amber-glow);
+  }
+  .pad.hit{
+    transform: scale(0.97);
+    border-color: var(--amber);
+  }
+  .pad.dragover{
+    border-color: var(--amber);
+    box-shadow: 0 0 0 2px var(--amber-dim) inset;
+  }
+  .pad-index{
+    position:absolute;
+    top:8px; left:10px;
+    font-size: 11px;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .pad-name{
+    font-size: 12.5px;
+    color: var(--text);
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    margin-bottom:6px;
+  }
+  .pad-name.placeholder{
+    color: var(--text-dim);
+    font-style: normal;
+  }
+  .pad-wave{
+    flex:1;
+    width:100%;
+    min-height:0;
+    margin-bottom:6px;
+    border-radius:4px;
+    background: #16171a;
+    border: 1px solid var(--line);
+  }
+  .pad-meter{
+    height:5px;
+    background:#16171a;
+    border-radius:3px;
+    overflow:hidden;
+    border: 1px solid var(--line);
+  }
+  .pad-meter-fill{
+    height:100%; width:0%;
+    background: linear-gradient(90deg, #4c7a52, var(--amber), var(--danger));
+  }
+  .pad-clear{
+    position:absolute;
+    top:6px; right:6px;
+    width:18px;height:18px;
+    border-radius:50%;
+    border:none;
+    background: rgba(0,0,0,0.3);
+    color: var(--text-dim);
+    font-size: 11px;
+    line-height:1;
+    display:none;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+  }
+  .pad.loaded:hover .pad-clear{ display:flex; }
+  .pad-clear:hover{ color: var(--danger); }
+
+  .footnote{
+    font-size: 11.5px;
+    color: var(--text-dim);
+    margin-top: 18px;
+    line-height:1.7;
+    padding: 0 4px;
+  }
+  kbd{
+    background: var(--panel-raised);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 11px;
+    color: var(--text);
+  }
+</style>
+</head>
+<body>
+
+<div class="rack">
+  <div class="top">
+    <div>
+      <div class="brand">PAD<span>/8</span></div>
+      <div class="sub">ZIPをアップロードして、音源をパッドにドラッグ</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="upload-row">
+      <button class="upload-btn" id="uploadBtn">ZIPをアップロード</button>
+      <input type="file" id="fileInput" accept=".zip">
+      <span class="zip-status" id="zipStatus">まだファイルが読み込まれていません</span>
+      <div class="master-meter-wrap">
+        <span class="master-label">MASTER</span>
+        <div class="meter-track"><div class="meter-fill" id="masterMeter"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="body-layout">
+    <div class="panel">
+      <p class="browser-title">音源リスト（ドラッグしてパッドへ）</p>
+      <div class="sample-list" id="sampleList"></div>
+      <p class="empty-note" id="emptyNote">ZIPの中の音声ファイル（wav / mp3 / ogg / m4a）がここに表示されます。</p>
+    </div>
+
+    <div class="panel">
+      <div class="pads" id="pads"></div>
+    </div>
+  </div>
+
+  <p class="footnote">
+    パッドをクリックまたは <kbd>1</kbd>〜<kbd>8</kbd> キーで再生。パッド割り当て（ファイル名）はCookieに保存されます。
+    ただし音声データ自体はCookieに保存できないため、再訪問時は同じZIPを再度アップロードすると、
+    ファイル名が一致するパッドに自動で再割り当てされます。
+  </p>
+</div>
+
+<script>
+(function(){
+  const PAD_COUNT = 8;
+  const COOKIE_KEY = "pad8_assignments";
+  const AUDIO_EXT = /\.(wav|mp3|ogg|m4a|aac|flac)$/i;
+
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const masterAnalyser = audioCtx.createAnalyser();
+  masterAnalyser.fftSize = 512;
+  masterAnalyser.connect(audioCtx.destination);
+  const masterData = new Uint8Array(masterAnalyser.frequencyBinCount);
+
+  // pad state: { name, buffer, analyser, meterEl, level }
+  const pads = new Array(PAD_COUNT).fill(null).map(() => ({
+    name: null, buffer: null, analyser: null, level: 0
+  }));
+
+  const samplesLoaded = {}; // path -> AudioBuffer (from current zip)
+  let sampleTree = { __folders: {}, __files: [] };
+
+  const padsEl = document.getElementById('pads');
+  const sampleListEl = document.getElementById('sampleList');
+  const emptyNote = document.getElementById('emptyNote');
+  const zipStatus = document.getElementById('zipStatus');
+  const masterMeterEl = document.getElementById('masterMeter');
+
+  // ---------- Cookie helpers ----------
+  function setCookie(name, value, days){
+    const d = new Date();
+    d.setTime(d.getTime() + days*24*60*60*1000);
+    document.cookie = name+"="+encodeURIComponent(value)+";expires="+d.toUTCString()+";path=/;SameSite=Lax";
+  }
+  function getCookie(name){
+    const parts = document.cookie.split(';').map(s=>s.trim());
+    for(const p of parts){
+      if(p.startsWith(name+"=")){
+        return decodeURIComponent(p.substring(name.length+1));
+      }
+    }
+    return null;
+  }
+  function saveAssignments(){
+    const map = pads.map(p => p.name || null);
+    setCookie(COOKIE_KEY, JSON.stringify(map), 365);
+  }
+  function loadAssignments(){
+    const raw = getCookie(COOKIE_KEY);
+    if(!raw) return new Array(PAD_COUNT).fill(null);
+    try{
+      const arr = JSON.parse(raw);
+      if(Array.isArray(arr) && arr.length === PAD_COUNT) return arr;
+    }catch(e){}
+    return new Array(PAD_COUNT).fill(null);
+  }
+
+  // ---------- Build pad UI ----------
+  function buildPads(){
+    padsEl.innerHTML = '';
+    for(let i=0;i<PAD_COUNT;i++){
+      const pad = document.createElement('div');
+      pad.className = 'pad';
+      pad.dataset.index = i;
+      pad.innerHTML = `
+        <div class="pad-index">${i+1}</div>
+        <button class="pad-clear" title="割り当て解除">×</button>
+        <canvas class="pad-wave"></canvas>
+        <div class="pad-name placeholder">未割当</div>
+        <div class="pad-meter"><div class="pad-meter-fill"></div></div>
+      `;
+      padsEl.appendChild(pad);
+
+      pad.addEventListener('click', (e) => {
+        if(e.target.classList.contains('pad-clear')) return;
+        triggerPad(i);
+      });
+      pad.querySelector('.pad-clear').addEventListener('click', (e) => {
+        e.stopPropagation();
+        clearPad(i);
+      });
+      pad.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        pad.classList.add('dragover');
+      });
+      pad.addEventListener('dragleave', () => pad.classList.remove('dragover'));
+      pad.addEventListener('drop', (e) => {
+        e.preventDefault();
+        pad.classList.remove('dragover');
+        const name = e.dataTransfer.getData('text/plain');
+        if(name && samplesLoaded[name]){
+          assignPad(i, name, samplesLoaded[name]);
+        }
+      });
+    }
+  }
+
+  function padEl(i){ return padsEl.children[i]; }
+
+  function assignPad(i, name, buffer){
+    pads[i].name = name;
+    pads[i].buffer = buffer;
+    pads[i].playhead = null;
+    const el = padEl(i);
+    el.classList.add('loaded');
+    const nameEl = el.querySelector('.pad-name');
+    nameEl.textContent = name.split('/').pop();
+    nameEl.title = name;
+    nameEl.classList.remove('placeholder');
+    drawWaveform(i);
+    saveAssignments();
+  }
+
+  function clearPad(i){
+    pads[i].name = null;
+    pads[i].buffer = null;
+    pads[i].playhead = null;
+    const el = padEl(i);
+    el.classList.remove('loaded');
+    const nameEl = el.querySelector('.pad-name');
+    nameEl.textContent = '未割当';
+    nameEl.classList.add('placeholder');
+    clearWaveform(i);
+    saveAssignments();
+  }
+
+  // ---------- Waveform drawing ----------
+  function fitCanvas(canvas){
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(1, Math.round(rect.width * dpr));
+    const h = Math.max(1, Math.round(rect.height * dpr));
+    if(canvas.width !== w || canvas.height !== h){
+      canvas.width = w;
+      canvas.height = h;
+    }
+    return dpr;
+  }
+
+  function computePeaks(buffer, numBuckets){
+    const data = buffer.getChannelData(0);
+    const bucketSize = Math.max(1, Math.floor(data.length / numBuckets));
+    const peaks = new Float32Array(numBuckets);
+    for(let b=0;b<numBuckets;b++){
+      let max = 0;
+      const start = b * bucketSize;
+      const end = Math.min(data.length, start + bucketSize);
+      for(let i=start;i<end;i++){
+        const v = Math.abs(data[i]);
+        if(v > max) max = v;
+      }
+      peaks[b] = max;
+    }
+    return peaks;
+  }
+
+  function drawWaveform(i){
+    const p = pads[i];
+    const canvas = padEl(i).querySelector('.pad-wave');
+    if(!p.buffer){ clearWaveform(i); return; }
+
+    fitCanvas(canvas);
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0,0,w,h);
+
+    if(!p.peaks || p.peaksFor !== canvas.width){
+      p.peaks = computePeaks(p.buffer, Math.max(20, Math.floor(w / 2)));
+      p.peaksFor = canvas.width;
+    }
+    const peaks = p.peaks;
+    const mid = h/2;
+    const barW = w / peaks.length;
+
+    ctx.fillStyle = '#7a5a2a';
+    for(let b=0;b<peaks.length;b++){
+      const barH = Math.max(1, peaks[b] * (h*0.9));
+      const x = b*barW;
+      ctx.fillRect(x, mid - barH/2, Math.max(1, barW-1), barH);
+    }
+
+    // playhead
+    if(p.playhead !== null && p.playhead !== undefined){
+      const px = p.playhead * w;
+      ctx.fillStyle = '#ffcf7a';
+      ctx.fillRect(px, 0, 2, h);
+    }
+  }
+
+  function clearWaveform(i){
+    const canvas = padEl(i).querySelector('.pad-wave');
+    fitCanvas(canvas);
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0,0,canvas.width, canvas.height);
+    pads[i].peaks = null;
+  }
+
+  function triggerPad(i){
+    const p = pads[i];
+    if(!p.buffer) return;
+    if(audioCtx.state === 'suspended') audioCtx.resume();
+
+    const source = audioCtx.createBufferSource();
+    source.buffer = p.buffer;
+
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    p.analyser = analyser;
+    p.analyserData = new Uint8Array(analyser.frequencyBinCount);
+
+    source.connect(analyser);
+    analyser.connect(masterAnalyser);
+
+    p.playStartTime = audioCtx.currentTime;
+    p.playDuration = p.buffer.duration;
+    p.playhead = 0;
+    source.start();
+    source.onended = () => { p.playhead = null; drawWaveform(i); };
+
+    const el = padEl(i);
+    el.classList.add('hit');
+    setTimeout(() => el.classList.remove('hit'), 120);
+  }
+
+  function previewPlay(buffer){
+    if(audioCtx.state === 'suspended') audioCtx.resume();
+    const source = audioCtx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(masterAnalyser);
+    source.start();
+  }
+
+  // ---------- Meters (animation loop) ----------
+  function rmsFromAnalyser(analyser, dataArr){
+    analyser.getByteTimeDomainData(dataArr);
+    let sumSquares = 0;
+    for(let i=0;i<dataArr.length;i++){
+      const v = (dataArr[i]-128)/128;
+      sumSquares += v*v;
+    }
+    return Math.sqrt(sumSquares/dataArr.length);
+  }
+
+  function animate(){
+    // master
+    const mLevel = rmsFromAnalyser(masterAnalyser, masterData);
+    masterMeterEl.style.width = Math.min(100, mLevel*260) + '%';
+
+    // per pad
+    for(let i=0;i<PAD_COUNT;i++){
+      const p = pads[i];
+      const fillEl = padEl(i).querySelector('.pad-meter-fill');
+      if(p.analyser){
+        const lvl = rmsFromAnalyser(p.analyser, p.analyserData);
+        fillEl.style.width = Math.min(100, lvl*260) + '%';
+      } else {
+        fillEl.style.width = '0%';
+      }
+      if(p.buffer && p.playhead !== null && p.playhead !== undefined){
+        const elapsed = audioCtx.currentTime - p.playStartTime;
+        p.playhead = Math.min(1, elapsed / p.playDuration);
+        drawWaveform(i);
+        if(p.playhead >= 1) p.playhead = null;
+      }
+    }
+    requestAnimationFrame(animate);
+  }
+
+  // ---------- Keyboard shortcuts ----------
+  window.addEventListener('keydown', (e) => {
+    const n = parseInt(e.key, 10);
+    if(n >= 1 && n <= 8){
+      triggerPad(n-1);
+    }
+  });
+
+  // ---------- Sample list (folder tree) ----------
+  function resetSampleList(){
+    sampleListEl.innerHTML = '';
+    sampleTree = { __folders: {}, __files: [] };
+  }
+
+  function addSampleToTree(path, buffer){
+    samplesLoaded[path] = buffer;
+    const parts = path.split('/');
+    const fileName = parts.pop();
+    let node = sampleTree;
+    for(const folder of parts){
+      if(!node.__folders[folder]){
+        node.__folders[folder] = { __folders: {}, __files: [] };
+      }
+      node = node.__folders[folder];
+    }
+    node.__files.push({ name: fileName, path: path });
+  }
+
+  function renderSampleTree(){
+    sampleListEl.innerHTML = '';
+    emptyNote.style.display = 'none';
+    renderTreeNode(sampleTree, sampleListEl);
+  }
+
+  function renderTreeNode(node, container){
+    const folderNames = Object.keys(node.__folders).sort();
+    for(const folderName of folderNames){
+      const group = document.createElement('div');
+      group.className = 'folder-group';
+
+      const header = document.createElement('div');
+      header.className = 'folder-item';
+      header.innerHTML = `<span class="caret">▾</span><span>${escapeHtml(folderName)}</span>`;
+
+      const childrenEl = document.createElement('div');
+      childrenEl.className = 'folder-children';
+
+      header.addEventListener('click', () => {
+        header.classList.toggle('collapsed');
+        childrenEl.classList.toggle('collapsed');
+      });
+
+      group.appendChild(header);
+      group.appendChild(childrenEl);
+      container.appendChild(group);
+
+      renderTreeNode(node.__folders[folderName], childrenEl);
+    }
+
+    const files = node.__files.slice().sort((a,b) => a.name.localeCompare(b.name));
+    for(const file of files){
+      container.appendChild(buildSampleItem(file.name, file.path));
+    }
+  }
+
+  function buildSampleItem(displayName, path){
+    const buffer = samplesLoaded[path];
+    const item = document.createElement('div');
+    item.className = 'sample-item';
+    item.draggable = true;
+    item.innerHTML = `<span class="name">${escapeHtml(displayName)}</span><button class="preview-btn" title="試聴">▶</button>`;
+    item.addEventListener('dragstart', (e) => {
+      e.dataTransfer.setData('text/plain', path);
+      item.classList.add('dragging');
+    });
+    item.addEventListener('dragend', () => item.classList.remove('dragging'));
+    item.querySelector('.preview-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      previewPlay(buffer);
+    });
+    return item;
+  }
+
+  function escapeHtml(s){
+    return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  }
+
+  // ---------- ZIP handling ----------
+  const uploadBtn = document.getElementById('uploadBtn');
+  const fileInput = document.getElementById('fileInput');
+  uploadBtn.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if(file) handleZip(file);
+  });
+
+  async function handleZip(file){
+    zipStatus.textContent = '読み込み中...';
+    try{
+      const zip = await JSZip.loadAsync(file);
+      const entries = Object.values(zip.files).filter(f => !f.dir && AUDIO_EXT.test(f.name));
+      if(entries.length === 0){
+        zipStatus.textContent = 'ZIP内に音声ファイルが見つかりませんでした';
+        return;
+      }
+      resetSampleList();
+      let loadedCount = 0;
+      const pending = loadAssignments();
+
+      for(const entry of entries){
+        const arrayBuffer = await entry.async('arraybuffer');
+        let audioBuffer;
+        try{
+          audioBuffer = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
+        }catch(err){
+          continue; // skip undecodable file
+        }
+        const path = entry.name;
+        addSampleToTree(path, audioBuffer);
+        loadedCount++;
+
+        // auto re-assign to any pad that referenced this path previously
+        pending.forEach((assignedName, idx) => {
+          if(assignedName === path && !pads[idx].buffer){
+            assignPad(idx, path, audioBuffer);
+          }
+        });
+      }
+      renderSampleTree();
+      zipStatus.textContent = `${loadedCount} 個の音源を読み込みました`;
+    }catch(err){
+      console.error(err);
+      zipStatus.textContent = 'ZIPの読み込みに失敗しました';
+    }
+  }
+
+  // ---------- Init ----------
+  buildPads();
+  requestAnimationFrame(animate);
+
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      for(let i=0;i<PAD_COUNT;i++){
+        pads[i].peaks = null;
+        if(pads[i].buffer) drawWaveform(i);
+      }
+    }, 150);
+  });
+})();
+</script>
+
+</body>
+</html>
