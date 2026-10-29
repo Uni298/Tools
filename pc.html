@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>山岳積み二号 パフェ取れるか問題</title>
+<style>
+:root{--bg:#fff;--fg:#1a1a1a;--card:#f3f3f5;--bd:#d5d5da;--ok:#1a9e4b;--ng:#d6342a;--ac:#3b6cf6;--empty:#a0a0a0;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#16171a;--fg:#eee;--card:#22242a;--bd:#3a3d45}}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;line-height:1.6}
+main{max-width:640px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:1.3rem;margin:0 0 4px}.sub{opacity:.7;font-size:.85rem;margin:0 0 16px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin-bottom:14px}
+.q{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.p{width:34px;height:34px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:1rem;position:relative}
+.p small{position:absolute;top:-8px;left:0;font-size:.6rem;color:var(--fg);opacity:.5;font-weight:400}
+.I{background:#4fb3ff}.O{background:#f0d000;color:#333}.T{background:#8a1ff0}.S{background:#6bdc2e;color:#333}.Z{background:#e8392b}.J{background:#1020f0}.L{background:#f08030}
+.btns{display:flex;gap:10px}
+button{flex:1;padding:14px;font-size:1rem;border:0;border-radius:10px;background:var(--ac);color:#fff;font-weight:700;cursor:pointer}
+button:disabled{opacity:.5}
+button.no{background:#777}button.next{background:var(--fg);color:var(--bg)}
+.res{font-weight:700;font-size:1.1rem}.ok{color:var(--ok)}.ng{color:var(--ng)}
+.boards{display:flex;flex-wrap:wrap;gap:14px;margin-top:10px}
+.bw{font-size:.8rem}.bw b{display:block;margin-bottom:3px}
+.board{display:grid;grid-template-columns:repeat(10,16px);gap:1px;background:#fff;border:3px solid #666;width:fit-content}
+.board i{width:16px;height:16px;background:var(--empty);display:block}
+.board i.I{background:#4fb3ff}.board i.O{background:#f0d000}.board i.T{background:#8a1ff0}.board i.S{background:#6bdc2e}.board i.Z{background:#e8392b}.board i.J{background:#1020f0}.board i.L{background:#f08030}
+.stat{font-size:.85rem;opacity:.8}
+.nx{padding:5px;border:1px solid var(--bd);border-radius:6px;background:var(--bg)}.nx.now{border-color:var(--ac);border-width:2px}
+.sh{display:grid;grid-template-columns:repeat(4,12px);grid-auto-rows:12px;gap:1px}.sh i{display:block;width:12px;height:12px}
+.board i.h{background:#111}
+textarea{width:100%;height:220px;font-family:monospace;font-size:.8rem;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:8px;box-sizing:border-box;padding:8px}
+details summary{cursor:pointer;font-weight:700}
+.cap{font-size:.8rem;opacity:.7;margin-top:6px}
+</style></head><body><main>
+<h1>山岳積み二号 → パフェ取れるか？</h1>
+<p class="sub">出題されたミノ順で、登録パフェパターンのいずれかに到達できるか答えよう</p>
+
+<div class="card">
+  <div class="bw"><b>置く前の盤面（山岳二号のTSTを打った後・黒が空きマス）</b><div id="base"></div></div>
+  <div style="margin-top:12px">ミノ順（7-bag）: 左から順に出現</div>
+  <div class="q" id="seq"></div>
+  <div class="stat">ホールドは空の状態から開始。左端が現ミノ、右へ順にNEXT。ミノの置き方（回転・移動・ホールド・ライン消去）を探索して、実際にパフェまで繋がるかを判定します。</div>
+  <div class="btns" style="margin-top:12px"><button id="yes">取れる</button><button class="no" id="no">取れない</button></div>
+  <div id="result" style="margin-top:14px"></div>
+</div>
+<div class="stat" id="score"></div>
+
+<details class="card"><summary>パターン編集</summary>
+<p class="sub">1パターン = 名前の行 + 5行（10文字）。I O T S Z J L が各ミノ、「.」が埋まったマス（灰色）、「_」が空きマス（BASEのみ）。パターン同士は空行で区切ります。最初の「BASE」が置く前の盤面です。</p>
+<textarea id="data"></textarea>
+<div class="btns" style="margin-top:8px"><button id="apply">反映して新しい問題</button></div>
+</details>
+
+<script>
+const DEFAULT=`BASE
+__________
+....______
+....__.__.
+...___....
+...._.....
+
+A1
+IIIILLLJJJ
+....LSSOOJ
+....SS.OO.
+...TTT....
+....T.....
+
+A2
+IIIIJJJLLL
+....OOJLSS
+....OO.SS.
+...TTT....
+....T.....
+
+A3
+IIIIJJZLLL
+....JZZLSS
+....JZ.SS.
+...TTT....
+....T.....
+
+A4
+IIIIJJZLOO
+....JZZLOO
+....JZ.LL.
+...TTT....
+....T.....
+
+B1
+IIIIJJZZOO
+....JLLLOO
+....JL.ZZ.
+...TTT....
+....T.....
+
+B2
+IIIIOOLJSS
+....LLLJJJ
+....OO.SS.
+...TTT....
+....T.....
+
+B3
+IIIIOOLJJZ
+....LLLJZZ
+....OO.JZ.
+...TTT....
+....T.....
+
+B4
+IIIIJJZLOO
+....JZZLOO
+....SS.LL.
+...SSZ....
+....J.....
+
+C1
+IIIISLLLOO
+....SSZZOO
+....TS.ZZ.
+...TTL....
+....T.....
+
+C2
+IIIILLLJJJ
+....TTTOOJ
+....SS.OO.
+...SST....
+....L.....
+
+C3
+IIIILLLJJZ
+....TTTJZZ
+....SS.JZ.
+...SST....
+....L.....
+
+C4
+IIIITOOJJZ
+....SOOJZZ
+....SS.JZ.
+...TTS....
+....T.....`;
+let base=null,pats=[],cur=null,done=false,right=0,total=0;
+const $=id=>document.getElementById(id);
+function parse(){
+  const blocks=$('data').value.split(/\n\s*\n/).map(b=>b.trim().split('\n').map(s=>s.trim())).filter(b=>b.length>=2);
+  pats=[];base=null;
+  for(const b of blocks){
+    const g=b.slice(1).map(r=>r.padEnd(10,'.').slice(0,10));
+    if(b[0].toUpperCase()==='BASE'){base=g;continue}
+    const cnt={};g.join('').split('').forEach(c=>{if(/[IOTSZJL]/.test(c))cnt[c]=(cnt[c]||0)+1});
+    const need=[];for(const k in cnt){for(let i=0;i<Math.max(1,Math.round(cnt[k]/4));i++)need.push(k)}
+    pats.push({name:b[0],grid:g,need});
+  }
+}
+function board(g){return '<div class="board">'+g.join('').split('').map(c=>`<i class="${/[IOTSZJL]/.test(c)?c:(c==='_'?'h':'')}"></i>`).join('')+'</div>'}
+function bag(){const a=[...'IOTSZJL'];for(let i=6;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+const SH={I:[[1,0],[1,1],[1,2],[1,3]],O:[[0,0],[0,1],[1,0],[1,1]],T:[[0,1],[1,0],[1,1],[1,2]],S:[[0,1],[0,2],[1,0],[1,1]],Z:[[0,0],[0,1],[1,1],[1,2]],J:[[0,0],[1,0],[1,1],[1,2]],L:[[0,2],[1,0],[1,1],[1,2]]};
+const SZ={I:4,O:2,T:3,S:3,Z:3,J:3,L:3};
+const COL={I:'#4fb3ff',O:'#f0d000',T:'#8a1ff0',S:'#6bdc2e',Z:'#e8392b',J:'#1020f0',L:'#f08030'};
+const ROT={};
+for(const k in SH){let c=SH[k];const n=SZ[k];ROT[k]=[c];for(let i=0;i<3;i++){c=c.map(([r,q])=>[q,n-1-r]);ROT[k].push(c)}}
+function shape(k){const mr=Math.min(...SH[k].map(c=>c[0]));const on=new Set(SH[k].map(([r,c])=>(r-mr)+','+c));let h='<div class="sh">';for(let r=0;r<2;r++)for(let c=0;c<4;c++)h+=on.has(r+','+c)?`<i style="background:${COL[k]}"></i>`:'<i></i>';return h+'</div>'}
+function mk(){return Array(5).fill(0).concat(base.map(r=>[...r].reduce((m,ch,c)=>m|(ch==='.'?1<<c:0),0)))}
+function fits(rows,k,rot,x,y){for(const [r,c] of ROT[k][rot]){const rr=y+r,cc=x+c;if(cc<0||cc>9||rr<0||rr>=10||(rows[rr]>>cc&1))return false}return true}
+function conn(nr){
+  const seen=new Set(),st=[];let tot=0;
+  for(let r=0;r<10;r++)for(let c=0;c<10;c++)if(!(nr[r]>>c&1))tot++;
+  for(let c=0;c<10;c++)if(!(nr[0]>>c&1)){st.push([0,c]);seen.add(c)}
+  while(st.length){const [r,c]=st.pop();for(const [dr,dc] of [[1,0],[-1,0],[0,1],[0,-1]]){const a=r+dr,b=c+dc;if(a<0||a>9||b<0||b>9||(nr[a]>>b&1))continue;const k=a*10+b;if(seen.has(k))continue;seen.add(k);st.push([a,b])}}
+  return seen.size===tot;
+}
+function place(rows,k){
+  const seen=new Set(),rest=new Map(),st=[[0,3,2]];
+  while(st.length){const [rot,x,y]=st.pop();const key=rot+','+x+','+y;if(seen.has(key))continue;seen.add(key);
+    if(!fits(rows,k,rot,x,y))continue;
+    if(!fits(rows,k,rot,x,y+1)){const cells=ROT[k][rot].map(([r,c])=>[y+r,x+c]);rest.set(cells.map(c=>c.join(':')).sort().join('|'),cells)}
+    st.push([rot,x-1,y],[rot,x+1,y],[rot,x,y+1]);
+    for(const d of [1,3]){const nr=(rot+d)%4;for(const [dx,dy] of [[0,0],[-1,0],[1,0],[0,-1],[-1,-1],[1,-1],[0,1]]){if(fits(rows,k,nr,x+dx,y+dy)){st.push([nr,x+dx,y+dy]);break}}}
+  }
+  const out=new Map();
+  for(const cells of rest.values()){
+    let nr=rows.slice();for(const [r,c] of cells)nr[r]|=1<<c;
+    nr=nr.filter(m=>m!==1023);while(nr.length<10)nr.unshift(0);
+    if(nr.slice(0,5).some(m=>m))continue;
+    if(!conn(nr))continue;
+    out.set(nr.join(','),nr);
+  }
+  return [...out.values()];
+}
+function feas(nr,k){
+  let top=nr.findIndex(m=>m),e=0;
+  if(top>=0)for(let r=top;r<10;r++)for(let c=0;c<10;c++)if(!(nr[r]>>c&1))e++;
+  const rem=4*k-e;return rem>=0&&rem%10===0;
+}
+function solve(rows,q,i,hold,k,memo){
+  if(k===0)return rows.every(r=>!r)?new Set(['']):new Set();
+  const key=rows.join(',')+'|'+i+hold+k;if(memo[key])return memo[key];
+  const res=new Set(),opts=[];
+  if(i<q.length)opts.push([q[i],i+1,hold]);
+  if(hold){if(i<q.length)opts.push([hold,i+1,q[i]])}
+  else if(i+1<q.length)opts.push([q[i+1],i+2,q[i]]);
+  for(const [p,ni,nh] of opts)for(const nr of place(rows,p)){
+    if(!feas(nr,k-1))continue;
+    for(const s of solve(nr,q,ni,nh,k-1,memo))res.add([...(p+s)].sort().join(''));
+  }
+  return memo[key]=res;
+}
+function newQ(){
+  parse();done=false;
+  $('base').innerHTML=base?board(base):'';
+  const seq=bag();
+  const U=solve(mk(),seq,0,'',6,{});
+  cur={seq,U,hit:pats.filter(p=>U.has([...p.need].sort().join('')))};
+  $('seq').innerHTML=seq.map((x,i)=>`<div class="nx${i?'':' now'}">${shape(x)}</div>`).join('');
+  $('result').innerHTML='';$('yes').disabled=$('no').disabled=false;
+  $('score').textContent=`正解 ${right} / ${total}`;
+}
+function answer(a){
+  if(done)return;done=true;total++;
+  const truth=cur.U.size>0;if(a===truth)right++;
+  $('yes').disabled=$('no').disabled=true;
+  let extra='';
+  if(truth){
+    extra=`<div class="cap">使うミノ: ${[...cur.U].join(' / ')}</div>`;
+    extra+=cur.hit.length?'<div class="boards">'+cur.hit.map(p=>`<div class="bw"><b>${p.name}</b>${board(p.grid)}</div>`).join('')+'</div>':'<div class="cap">登録パターンに該当なし（編集欄にパターンを追加してください）</div>';
+  }
+  $('result').innerHTML=`<div class="res ${a===truth?'ok':'ng'}">${a===truth?'正解！':'不正解'}　答え: ${truth?'取れる':'取れない'}</div>${extra}<div class="btns" style="margin-top:12px"><button class="next" onclick="newQ()">次の問題</button></div>`;
+  $('score').textContent=`正解 ${right} / ${total}`;
+}
+$('yes').onclick=()=>answer(true);$('no').onclick=()=>answer(false);
+$('apply').onclick=newQ;
+$('data').value=DEFAULT;newQ();
+</script></main></body></html>
