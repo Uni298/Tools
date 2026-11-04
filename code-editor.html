@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cookie Editor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,700;1,400&family=Fira+Code:wght@400;700&family=Source+Code+Pro:wght@400;700&family=IBM+Plex+Mono:wght@400;700&family=Space+Mono:wght@400;700&family=Inconsolata:wght@400;700&family=Roboto+Mono:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg1:#12131a;--bg2:#241a3a;--ui:#1b1c26ee;--fg:#e6e6f0;--line:#ffffff1f;--acc:#7cf0c8}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font:13px/1.5 "Noto Sans JP",system-ui,sans-serif;color:var(--fg);background:linear-gradient(135deg,var(--bg1),var(--bg2));background-size:100% 100%;display:flex;flex-direction:column;overflow:hidden}
+body.anim{background-size:300% 300%;animation:flow 14s ease infinite}
+@keyframes flow{0%,100%{background-position:0 50%}50%{background-position:100% 50%}}
+body.img{background-size:cover;background-position:center;animation:none}
+header{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--ui);border-bottom:1px solid var(--line);backdrop-filter:blur(8px)}
+header b{font-family:"JetBrains Mono",monospace;letter-spacing:.02em}
+header .sp{flex:1}
+button,select,input{font:inherit;color:var(--fg)}
+button{background:#ffffff14;border:1px solid var(--line);border-radius:6px;padding:5px 11px;cursor:pointer;transition:background .15s,transform .15s}
+button:hover{background:#ffffff26}button:active{transform:scale(.96)}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+select,input[type=text],input[type=number]{background:#00000040;border:1px solid var(--line);border-radius:6px;padding:4px 6px;min-width:0}
+#wrap{flex:1;position:relative;min-height:0;margin:10px;border:1px solid var(--line);border-radius:10px;overflow:hidden;transition:box-shadow .3s}
+body.glow #wrap{box-shadow:0 0 0 1px var(--acc),0 0 36px -6px var(--acc)}
+#editor{position:absolute;inset:0}
+#status{padding:4px 14px;font:12px "JetBrains Mono",monospace;background:var(--ui);border-top:1px solid var(--line);display:flex;gap:16px}
+#panel{position:fixed;top:0;right:0;bottom:0;width:340px;max-width:92vw;background:#16171fee;backdrop-filter:blur(14px);border-left:1px solid var(--line);transform:translateX(105%);transition:transform .3s cubic-bezier(.2,.8,.2,1);display:flex;flex-direction:column;z-index:50}
+#panel.open{transform:none}
+#panel h2{margin:0;padding:12px 14px;font-size:14px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+#rows{overflow:auto;padding:6px 14px 20px;flex:1}
+.row{display:grid;grid-template-columns:1fr 150px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid #ffffff0d}
+.row input[type=range]{width:100%;accent-color:var(--acc)}
+.row input[type=color]{width:100%;height:26px;background:none;border:1px solid var(--line);border-radius:6px;padding:0}
+.grp{margin:14px 0 2px;color:var(--acc);font-weight:700}
+.hint{font-size:11px;opacity:.6;padding:4px 0}
+#toast{position:fixed;left:50%;bottom:44px;transform:translate(-50%,20px);background:#000c;padding:6px 14px;border-radius:20px;opacity:0;transition:.3s;pointer-events:none}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+@media (prefers-reduced-motion:reduce){body.anim{animation:none}*{transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <b>Cookie Editor</b>
+  <select id="lang" aria-label="言語"></select>
+  <select id="theme" aria-label="テーマ"></select>
+  <span class="sp"></span>
+  <button id="dl">保存(.file)</button>
+  <button id="open">開く</button>
+  <button id="gear">⚙ 設定</button>
+  <input type="file" id="file" hidden>
+  <input type="file" id="bgfile" accept="image/*" hidden>
+</header>
+<div id="wrap"><div id="editor"></div></div>
+<div id="status"><span id="pos">Ln 1, Col 1</span><span id="len"></span><span id="ck"></span></div>
+<aside id="panel" aria-label="設定"><h2>設定 <span><button id="reset">初期化</button> <button id="close">✕</button></span></h2><div id="rows"></div></aside>
+<div id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
+<script>
+// ---------- Cookie storage (大きなコードは複数クッキーに分割) ----------
+const CK = {
+  set(n, v, days = 365) { document.cookie = `${n}=${v};max-age=${days * 86400};path=/;SameSite=Lax`; },
+  get(n) { const m = document.cookie.split('; ').find(c => c.startsWith(n + '=')); return m ? m.slice(n.length + 1) : null; },
+  del(n) { document.cookie = `${n}=;max-age=0;path=/`; },
+  saveText(key, text) {
+    const enc = encodeURIComponent(text), size = 3000, parts = Math.ceil(enc.length / size);
+    if (parts > 40) return false;
+    let i = 0;
+    for (; i < parts; i++) this.set(`${key}_${i}`, enc.slice(i * size, (i + 1) * size));
+    this.set(`${key}_n`, parts);
+    for (let j = parts; j < 60; j++) { if (this.get(`${key}_${j}`) === null) break; this.del(`${key}_${j}`); }
+    return true;
+  },
+  loadText(key) {
+    const n = parseInt(this.get(`${key}_n`)); if (!n) return null;
+    let s = ''; for (let i = 0; i < n; i++) s += this.get(`${key}_${i}`) || '';
+    try { return decodeURIComponent(s); } catch { return null; }
+  }
+};
+
+// ---------- テーマ ----------
+const THEMES = {
+  'Midnight':   {base:'vs-dark', bg:'#12131a', fg:'#d6d9e8', sel:'#3a3f66', cur:'#7cf0c8', r:{comment:'5c6380',keyword:'c792ea',string:'a5e8a0',number:'ffb86b',type:'7cd7f0',function:'82aaff',variable:'e6e6f0'}},
+  'Dracula':    {base:'vs-dark', bg:'#282a36', fg:'#f8f8f2', sel:'#44475a', cur:'#f8f8f0', r:{comment:'6272a4',keyword:'ff79c6',string:'f1fa8c',number:'bd93f9',type:'8be9fd',function:'50fa7b',variable:'f8f8f2'}},
+  'Monokai':    {base:'vs-dark', bg:'#272822', fg:'#f8f8f2', sel:'#49483e', cur:'#f8f8f0', r:{comment:'75715e',keyword:'f92672',string:'e6db74',number:'ae81ff',type:'66d9ef',function:'a6e22e',variable:'f8f8f2'}},
+  'Nord':       {base:'vs-dark', bg:'#2e3440', fg:'#d8dee9', sel:'#434c5e', cur:'#d8dee9', r:{comment:'616e88',keyword:'81a1c1',string:'a3be8c',number:'b48ead',type:'8fbcbb',function:'88c0d0',variable:'d8dee9'}},
+  'Solarized Dark': {base:'vs-dark', bg:'#002b36', fg:'#93a1a1', sel:'#073642', cur:'#93a1a1', r:{comment:'586e75',keyword:'859900',string:'2aa198',number:'d33682',type:'b58900',function:'268bd2',variable:'93a1a1'}},
+  'Paper':      {base:'vs', bg:'#fbf8f1', fg:'#2b2b2b', sel:'#d9e4f5', cur:'#1f4fd8', r:{comment:'8a8f98',keyword:'a626a4',string:'3c8a2e',number:'b5651d',type:'0f7b8a',function:'1f4fd8',variable:'2b2b2b'}},
+  'High Contrast': {base:'hc-black', bg:'#000000', fg:'#ffffff', sel:'#264f78', cur:'#ffffff', r:{}}
+};
+
+// ---------- 設定スキーマ ----------
+const FONTS = ['JetBrains Mono','Fira Code','Source Code Pro','IBM Plex Mono','Space Mono','Inconsolata','Roboto Mono','Consolas','Menlo','monospace'];
+const GRADS = {
+  'Aurora':['#12131a','#241a3a'], 'Ocean':['#06202b','#0b4f6c'], 'Sunset':['#2b1020','#6a2c3e'],
+  'Forest':['#0b1d14','#1f4d3a'], 'Ink':['#000000','#111111'], 'Mist':['#e9eef5','#cfd9e6']
+};
+const SCHEMA = [
+  ['エディタ'],
+  ['fontFamily','フォント','select',FONTS],
+  ['fontSize','文字サイズ','range',[8,48,1]],
+  ['lineHeight','行の高さ(px)','range',[0,60,1]],
+  ['fontLigatures','リガチャ','check'],
+  ['fontWeight','太さ','select',['300','400','500','600','700']],
+  ['letterSpacing','字間','range',[0,4,0.1]],
+  ['tabSize','タブ幅','range',[1,8,1]],
+  ['wordWrap','折り返し','select',['off','on','bounded']],
+  ['lineNumbers','行番号','select',['on','off','relative','interval']],
+  ['minimap','ミニマップ','check'],
+  ['renderWhitespace','空白表示','select',['none','boundary','selection','trailing','all']],
+  ['bracketPairColorization','括弧の色分け','check'],
+  ['guides','インデントガイド','check'],
+  ['folding','折りたたみ','check'],
+  ['formatOnType','入力時整形','check'],
+  ['readOnly','読み取り専用','check'],
+  ['アニメーション'],
+  ['cursorBlinking','カーソル点滅','select',['blink','smooth','phase','expand','solid']],
+  ['cursorStyle','カーソル形状','select',['line','block','underline','line-thin','block-outline','underline-thin']],
+  ['cursorSmoothCaretAnimation','カーソル滑らか移動','check'],
+  ['smoothScrolling','スクロール補間','check'],
+  ['mouseWheelZoom','Ctrl+ホイールで拡大','check'],
+  ['bgAnim','背景グラデ アニメ','check'],
+  ['glow','枠のグロー','check'],
+  ['配色'],
+  ['theme','テーマ','select',Object.keys(THEMES)],
+  ['customBg','エディタ背景色を上書き','check'],
+  ['bgColor','エディタ背景色','color'],
+  ['customCol','コメント/キーワード等を上書き','check'],
+  ['cKeyword','キーワード色','color'],['cString','文字列色','color'],['cNumber','数値色','color'],['cComment','コメント色','color'],['cFunction','関数色','color'],['cType','型色','color'],
+  ['背景'],
+  ['grad','背景プリセット','select',Object.keys(GRADS).concat(['Custom'])],
+  ['bg1','背景色1','color'],['bg2','背景色2','color'],
+  ['editorOpacity','エディタの不透明度','range',[0,1,0.05]],
+  ['uiBlur','ぼかし(px)','range',[0,20,1]],
+  ['bgImage','背景画像','button']
+];
+const DEF = {fontFamily:'JetBrains Mono',fontSize:15,lineHeight:0,fontLigatures:true,fontWeight:'400',letterSpacing:0,tabSize:2,wordWrap:'on',lineNumbers:'on',minimap:true,renderWhitespace:'none',bracketPairColorization:true,guides:true,folding:true,formatOnType:false,readOnly:false,
+  cursorBlinking:'smooth',cursorStyle:'line',cursorSmoothCaretAnimation:true,smoothScrolling:true,mouseWheelZoom:true,bgAnim:true,glow:false,
+  theme:'Midnight',customBg:false,bgColor:'#12131a',customCol:false,cKeyword:'#c792ea',cString:'#a5e8a0',cNumber:'#ffb86b',cComment:'#5c6380',cFunction:'#82aaff',cType:'#7cd7f0',
+  grad:'Aurora',bg1:'#12131a',bg2:'#241a3a',editorOpacity:0.82,uiBlur:0,lang:'javascript'};
+const SAMPLE = `// Cookie Editor — 設定とコードはクッキーに保存されます
+function fib(n) {
+  return n < 2 ? n : fib(n - 1) + fib(n - 2);
+}
+
+const nums = Array.from({ length: 10 }, (_, i) => fib(i));
+console.log("fib:", nums); // => [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]
+`;
+
+let S = {...DEF};
+try { Object.assign(S, JSON.parse(decodeURIComponent(CK.get('ce_settings') || '%7B%7D'))); } catch {}
+let bgImageData = null, editor, monaco;
+const $ = id => document.getElementById(id);
+const toast = m => { const t = $('toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 1800); };
+const saveSettings = () => { CK.set('ce_settings', encodeURIComponent(JSON.stringify(S))); };
+
+// ---------- Monaco ----------
+const base = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min';
+require.config({ paths: { vs: base + '/vs' } });
+window.MonacoEnvironment = { getWorkerUrl: () => URL.createObjectURL(new Blob([
+  `self.MonacoEnvironment={baseUrl:'${base}/'};importScripts('${base}/vs/base/worker/workerMain.js');`], { type: 'text/javascript' })) };
+
+require(['vs/editor/editor.main'], () => {
+  monaco = window.monaco;
+  const langs = monaco.languages.getLanguages().sort((a, b) => a.id.localeCompare(b.id));
+  $('lang').innerHTML = langs.map(l => `<option value="${l.id}">${l.aliases?.[0] || l.id}</option>`).join('');
+  $('theme').innerHTML = Object.keys(THEMES).map(t => `<option>${t}</option>`).join('');
+  const code = CK.loadText('ce_code');
+  editor = monaco.editor.create($('editor'), {
+    value: code ?? SAMPLE, language: S.lang, automaticLayout: true, scrollBeyondLastLine: false, padding: { top: 12, bottom: 12 }
+  });
+  applyAll(); buildPanel();
+
+  let timer;
+  editor.onDidChangeModelContent(() => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { const ok = CK.saveText('ce_code', editor.getValue()); $('ck').textContent = ok ? 'クッキーに保存済み' : '⚠ 大きすぎて保存不可(上限約100KB)'; }, 400);
+    $('len').textContent = editor.getValue().length + ' 文字';
+  });
+  editor.onDidChangeCursorPosition(e => $('pos').textContent = `Ln ${e.position.lineNumber}, Col ${e.position.column}`);
+  $('len').textContent = editor.getValue().length + ' 文字';
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => { CK.saveText('ce_code', editor.getValue()); toast('保存しました'); });
+});
+
+function defineTheme() {
+  const t = THEMES[S.theme] || THEMES.Midnight;
+  const bg = S.customBg ? S.bgColor : t.bg;
+  const a = Math.round(S.editorOpacity * 255).toString(16).padStart(2, '0');
+  const r = { ...t.r };
+  if (S.customCol) Object.assign(r, { keyword: S.cKeyword.slice(1), string: S.cString.slice(1), number: S.cNumber.slice(1), comment: S.cComment.slice(1), function: S.cFunction.slice(1), type: S.cType.slice(1) });
+  const rules = [];
+  const map = { comment: ['comment'], keyword: ['keyword', 'keyword.control'], string: ['string'], number: ['number'], type: ['type', 'type.identifier'], function: ['function', 'support.function'], variable: ['variable', 'identifier'] };
+  for (const k in r) map[k].forEach(token => rules.push({ token, foreground: r[k], fontStyle: k === 'comment' ? 'italic' : '' }));
+  monaco.editor.defineTheme('app', { base: t.base, inherit: true, rules, colors: {
+    'editor.background': bg + a, 'editor.foreground': t.fg, 'editor.selectionBackground': t.sel,
+    'editorCursor.foreground': t.cur, 'editorGutter.background': '#00000000', 'minimap.background': '#00000000',
+    'editor.lineHighlightBackground': '#ffffff10', 'editorLineNumber.foreground': t.fg + '66' } });
+  monaco.editor.setTheme('app');
+}
+
+function applyAll() {
+  defineTheme();
+  const s = S;
+  const font = `'${s.fontFamily}', 'Noto Sans JP', monospace`;
+  editor.updateOptions({
+    fontFamily: font, fontSize: +s.fontSize, lineHeight: +s.lineHeight, fontLigatures: s.fontLigatures, fontWeight: s.fontWeight,
+    letterSpacing: +s.letterSpacing, tabSize: +s.tabSize, wordWrap: s.wordWrap, lineNumbers: s.lineNumbers, minimap: { enabled: s.minimap },
+    renderWhitespace: s.renderWhitespace, bracketPairColorization: { enabled: s.bracketPairColorization }, guides: { indentation: s.guides, bracketPairs: s.bracketPairColorization },
+    folding: s.folding, formatOnType: s.formatOnType, readOnly: s.readOnly, cursorBlinking: s.cursorBlinking, cursorStyle: s.cursorStyle,
+    cursorSmoothCaretAnimation: s.cursorSmoothCaretAnimation ? 'on' : 'off', smoothScrolling: s.smoothScrolling, mouseWheelZoom: s.mouseWheelZoom
+  });
+  document.fonts?.load(`${s.fontSize}px '${s.fontFamily}'`).then(() => monaco.editor.remeasureFonts());
+  monaco.editor.setModelLanguage(editor.getModel(), s.lang);
+  $('lang').value = s.lang; $('theme').value = s.theme;
+  const g = s.grad === 'Custom' ? [s.bg1, s.bg2] : GRADS[s.grad];
+  document.documentElement.style.setProperty('--bg1', g[0]); document.documentElement.style.setProperty('--bg2', g[1]);
+  document.body.classList.toggle('anim', s.bgAnim); document.body.classList.toggle('glow', s.glow);
+  document.body.classList.toggle('img', !!bgImageData);
+  document.body.style.backgroundImage = bgImageData ? `url(${bgImageData})` : '';
+  $('wrap').style.backdropFilter = s.uiBlur ? `blur(${s.uiBlur}px)` : '';
+  saveSettings();
+}
+
+function buildPanel() {
+  const rows = $('rows'); rows.innerHTML = '';
+  for (const it of SCHEMA) {
+    if (it.length === 1) { rows.insertAdjacentHTML('beforeend', `<div class="grp">${it[0]}</div>`); continue; }
+    const [key, label, type, opt] = it;
+    const row = document.createElement('div'); row.className = 'row';
+    row.innerHTML = `<label for="s_${key}">${label}</label>`;
+    let el;
+    if (type === 'select') { el = document.createElement('select'); el.innerHTML = opt.map(o => `<option>${o}</option>`).join(''); el.value = S[key]; el.onchange = () => set(key, el.value); }
+    else if (type === 'range') { el = document.createElement('input'); el.type = 'range'; [el.min, el.max, el.step] = opt; el.value = S[key]; el.oninput = () => set(key, +el.value); }
+    else if (type === 'check') { el = document.createElement('input'); el.type = 'checkbox'; el.checked = S[key]; el.onchange = () => set(key, el.checked); }
+    else if (type === 'color') { el = document.createElement('input'); el.type = 'color'; el.value = S[key]; el.oninput = () => { if (key.startsWith('bg') && key !== 'bgColor') S.grad = 'Custom'; set(key, el.value); }; }
+    else { el = document.createElement('button'); el.textContent = '画像を選択…'; el.onclick = () => $('bgfile').click(); const x = document.createElement('button'); x.textContent = '解除'; x.onclick = () => { bgImageData = null; applyAll(); }; row.append(el); row.append(x); rows.append(row); continue; }
+    el.id = 's_' + key; row.append(el); rows.append(row);
+  }
+  rows.insertAdjacentHTML('beforeend', '<div class="hint">背景画像はクッキーの容量制限のため保存されません(セッション中のみ)。</div>');
+}
+function set(k, v) { S[k] = v; if (k === 'grad' || k === 'theme') { if (k === 'grad' && v !== 'Custom') { S.bg1 = GRADS[v][0]; S.bg2 = GRADS[v][1]; } } applyAll(); if (k === 'grad') buildPanel(); }
+
+$('lang').onchange = e => set('lang', e.target.value);
+$('theme').onchange = e => { set('theme', e.target.value); buildPanel(); };
+$('gear').onclick = () => $('panel').classList.toggle('open');
+$('close').onclick = () => $('panel').classList.remove('open');
+$('reset').onclick = () => { if (confirm('設定を初期化しますか?')) { S = { ...DEF }; bgImageData = null; applyAll(); buildPanel(); } };
+$('bgfile').onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { bgImageData = r.result; applyAll(); }; r.readAsDataURL(f); };
+$('open').onclick = () => $('file').click();
+$('file').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return; editor.setValue(await f.text());
+  const ext = '.' + f.name.split('.').pop().toLowerCase();
+  const l = monaco.languages.getLanguages().find(l => l.extensions?.includes(ext)); if (l) set('lang', l.id);
+};
+$('dl').onclick = () => {
+  const l = monaco.languages.getLanguages().find(l => l.id === S.lang);
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([editor.getValue()], { type: 'text/plain' }));
+  a.download = 'code' + (l?.extensions?.[0] || '.txt'); a.click();
+};
+</script>
+</body>
+</html>
