@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>数式テキスト → LaTeX リアルタイム変換ツール</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Inter & Noto Sans JP & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <!-- KaTeX CSS & JS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Inter"', '"Noto Sans JP"', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace'],
+          },
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Custom subtle scrollbar & KaTeX display sizing */
+    .katex-display {
+      margin: 0.5em 0 !important;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding: 0.25rem 0;
+    }
+    .katex {
+      font-size: 1.35em;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col font-sans antialiased selection:bg-indigo-100 selection:text-indigo-900">
+
+  <!-- Header -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm">
+    <div class="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-serif text-xl font-bold shadow-sm">
+          ∑
+        </div>
+        <div>
+          <h1 class="text-lg sm:text-xl font-bold text-slate-900 tracking-tight">数式テキスト → LaTeX 変換</h1>
+          <p class="text-xs sm:text-sm text-slate-500">普段どおりの打ち方で数式を入力すると、即座にLaTeXコードと数式プレビューを生成します</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 self-start sm:self-auto">
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+          リアルタイム変換中
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
+
+    <!-- Example Chips Bar -->
+    <section class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+      <div class="flex items-center justify-between mb-2.5">
+        <span class="text-xs font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+          <svg class="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+          サンプルをクリックして試す
+        </span>
+        <button id="clearBtn" type="button" class="text-xs text-slate-400 hover:text-rose-600 transition-colors px-2 py-1 rounded-lg hover:bg-rose-50">
+          入力をクリア
+        </button>
+      </div>
+      <div id="exampleChips" class="flex flex-wrap gap-2">
+        <!-- Populated by JS -->
+      </div>
+    </section>
+
+    <!-- Main Editor & Preview Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      
+      <!-- Left Column: Input & Conversion Options (6 cols) -->
+      <div class="lg:col-span-6 flex flex-col gap-4">
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col flex-1 overflow-hidden">
+          <div class="px-4 py-3 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between">
+            <label for="mathInput" class="text-sm font-semibold text-slate-700 flex items-center gap-2">
+              <span>1. 数式テキストを入力</span>
+            </label>
+            <span class="text-xs text-slate-400">半角英数・記号で入力</span>
+          </div>
+
+          <!-- Quick Symbol Toolbar -->
+          <div class="px-3 py-2 bg-slate-50 border-b border-slate-100 flex flex-wrap gap-1.5" id="quickButtons">
+            <!-- Populated by JS -->
+          </div>
+
+          <textarea
+            id="mathInput"
+            rows="5"
+            spellcheck="false"
+            placeholder="例: 2a^2-2a^2+12a+18/a-(a+3)"
+            class="w-full flex-1 p-4 font-mono text-base sm:text-lg text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500 resize-y leading-relaxed"
+          >2a^2-2a^2+12a+18/a-(a+3)</textarea>
+
+          <!-- Conversion Settings -->
+          <div class="p-4 bg-slate-50 border-t border-slate-200 space-y-3">
+            <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider">変換オプション</div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              <!-- Fraction Mode -->
+              <div class="bg-white p-2.5 rounded-xl border border-slate-200">
+                <label for="fracMode" class="block text-xs font-medium text-slate-500 mb-1">スラッシュ「/」の分数化</label>
+                <select id="fracMode" class="w-full text-xs sm:text-sm font-medium text-slate-800 bg-transparent focus:outline-none cursor-pointer">
+                  <option value="standard" selected>標準（18/a や (a+b)/(c+d) を分数化）</option>
+                  <option value="line">行全体（左右の式全体を分子/分母にする）</option>
+                  <option value="slash">分数のままスラッシュ「/」を残す</option>
+                </select>
+              </div>
+
+              <!-- Multiply Symbol -->
+              <div class="bg-white p-2.5 rounded-xl border border-slate-200">
+                <label for="multMode" class="block text-xs font-medium text-slate-500 mb-1">掛け算記号「*」の変換</label>
+                <select id="multMode" class="w-full text-xs sm:text-sm font-medium text-slate-800 bg-transparent focus:outline-none cursor-pointer">
+                  <option value="times" selected>\times（× に変換）</option>
+                  <option value="cdot">\cdot（・ に変換）</option>
+                  <option value="implicit">省略（詰めて表示）</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Column: Preview & Output Code (6 cols) -->
+      <div class="lg:col-span-6 flex flex-col gap-4">
+        
+        <!-- Live Math Preview Card -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+          <div class="px-4 py-3 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between">
+            <span class="text-sm font-semibold text-slate-700">2. 数式プレビュー（仕上がりイメージ）</span>
+            <span id="renderStatus" class="text-xs text-slate-400">KaTeX レンダリング</span>
+          </div>
+          <div class="p-6 min-h-[140px] flex items-center justify-center bg-gradient-to-b from-white to-slate-50/50 overflow-x-auto">
+            <div id="mathPreview" class="text-slate-900 text-center w-full"></div>
+          </div>
+        </div>
+
+        <!-- Generated LaTeX Code Card -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col flex-1">
+          <div class="px-4 py-3 bg-slate-50/80 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+            <span class="text-sm font-semibold text-slate-700">3. 生成された LaTeX コード</span>
+            
+            <!-- Wrapper Format Selector -->
+            <div class="inline-flex rounded-lg bg-slate-200/70 p-0.5 text-xs font-medium" role="group">
+              <button type="button" data-wrap="raw" class="wrap-btn px-2.5 py-1 rounded-md bg-white text-slate-900 shadow-sm transition">
+                コードのみ
+              </button>
+              <button type="button" data-wrap="inline" class="wrap-btn px-2.5 py-1 rounded-md text-slate-600 hover:text-slate-900 transition">
+                $ ... $
+              </button>
+              <button type="button" data-wrap="block" class="wrap-btn px-2.5 py-1 rounded-md text-slate-600 hover:text-slate-900 transition">
+                $$ ... $$
+              </button>
+            </div>
+          </div>
+
+          <div class="relative flex-1 flex flex-col">
+            <textarea
+              id="latexOutput"
+              rows="4"
+              readonly
+              class="w-full flex-1 p-4 font-mono text-sm sm:text-base text-indigo-950 bg-indigo-50/30 focus:outline-none resize-none leading-relaxed"
+            ></textarea>
+            
+            <div class="p-3 bg-white border-t border-slate-100 flex items-center justify-between gap-3">
+              <span id="copyToast" class="text-xs font-medium text-emerald-600 opacity-0 transition-opacity duration-200 flex items-center gap-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                クリップボードにコピーしました！
+              </span>
+
+              <button
+                id="copyBtn"
+                type="button"
+                class="ml-auto inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-semibold shadow-sm transition-all cursor-pointer"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                <span>LaTeXをコピー</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Syntax Cheat Sheet -->
+    <section class="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm">
+      <h2 class="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
+        <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
+        入力記法クイックガイド（チートシート）
+      </h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+        
+        <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2">
+          <div class="font-semibold text-slate-700">分数・累乗・添え字</div>
+          <ul class="space-y-1.5 text-xs text-slate-600 font-mono">
+            <li class="flex justify-between"><span>18/a</span> <span class="text-indigo-600">→ \frac{18}{a}</span></li>
+            <li class="flex justify-between"><span>(x+1)/(x-1)</span> <span class="text-indigo-600">→ \frac{x+1}{x-1}</span></li>
+            <li class="flex justify-between"><span>a^2, x^(n+1)</span> <span class="text-indigo-600">→ a^{2}, x^{n+1}</span></li>
+            <li class="flex justify-between"><span>a_1, a_(n+1)</span> <span class="text-indigo-600">→ a_{1}, a_{n+1}</span></li>
+          </ul>
+        </div>
+
+        <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2">
+          <div class="font-semibold text-slate-700">ルート（平方根・n乗根）</div>
+          <ul class="space-y-1.5 text-xs text-slate-600 font-mono">
+            <li class="flex justify-between"><span>sqrt(x)</span> <span class="text-indigo-600">→ \sqrt{x}</span></li>
+            <li class="flex justify-between"><span>sqrt(a^2+b^2)</span> <span class="text-indigo-600">→ \sqrt{a^{2}+b^{2}}</span></li>
+            <li class="flex justify-between"><span>cbrt(x)</span> <span class="text-indigo-600">→ \sqrt[3]{x}</span></li>
+            <li class="flex justify-between"><span>root(n, x)</span> <span class="text-indigo-600">→ \sqrt[n]{x}</span></li>
+          </ul>
+        </div>
+
+        <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2">
+          <div class="font-semibold text-slate-700">関数・極限・総和・積分</div>
+          <ul class="space-y-1.5 text-xs text-slate-600 font-mono">
+            <li class="flex justify-between"><span>sin(x), cos(x)</span> <span class="text-indigo-600">→ \sin(x), \cos(x)</span></li>
+            <li class="flex justify-between"><span>log(x), ln(x)</span> <span class="text-indigo-600">→ \log(x), \ln(x)</span></li>
+            <li class="flex justify-between"><span>sum_{n=1}^infty</span> <span class="text-indigo-600">→ \sum_{n=1}^{\infty}</span></li>
+            <li class="flex justify-between"><span>int_0^1 x^2 dx</span> <span class="text-indigo-600">→ \int_{0}^{1} ...</span></li>
+          </ul>
+        </div>
+
+        <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2">
+          <div class="font-semibold text-slate-700">ギリシャ文字・比較記号</div>
+          <ul class="space-y-1.5 text-xs text-slate-600 font-mono">
+            <li class="flex justify-between"><span>alpha, beta, theta</span> <span class="text-indigo-600">→ \alpha, \beta, \theta</span></li>
+            <li class="flex justify-between"><span>pi, infty</span> <span class="text-indigo-600">→ \pi, \infty</span></li>
+            <li class="flex justify-between"><span>&lt;=, &gt;=, !=</span> <span class="text-indigo-600">→ \le, \ge, \neq</span></li>
+            <li class="flex justify-between"><span>+-, -&gt;, =&gt;</span> <span class="text-indigo-600">→ \pm, \to, \Rightarrow</span></li>
+          </ul>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-slate-200 bg-white py-4 mt-8">
+    <div class="max-w-5xl mx-auto px-4 sm:px-6 text-center text-xs text-slate-400">
+      ブラウザ上で完結して動作するため、入力した数式が外部サーバーに送信されることはありません。
+    </div>
+  </footer>
+
+  <script>
+    /**
+     * Plain-Text Math Expression to LaTeX Parser & Converter
+     * Designed to convert everyday algebraic expressions like:
+     * "2a^2-2a^2+12a+18/a-(a+3)" -> "2a^{2}-2a^{2}+12a+\frac{18}{a}-(a+3)"
+     */
+    class MathToLatexConverter {
+      constructor() {
+        this.functions = new Set([
+          'sin', 'cos', 'tan', 'csc', 'sec', 'cot',
+          'arcsin', 'arccos', 'arctan',
+          'sinh', 'cosh', 'tanh',
+          'log', 'ln', 'exp', 'lim', 'limsup', 'liminf',
+          'max', 'min', 'sup', 'inf', 'det', 'gcd', 'lcm', 'mod'
+        ]);
+
+        this.bigOperators = new Set(['sum', 'prod', 'int', 'iint', 'iiint', 'oint']);
+
+        this.greekLetters = new Set([
+          'alpha', 'beta', 'gamma', 'delta', 'epsilon', 'varepsilon',
+          'zeta', 'eta', 'theta', 'vartheta', 'iota', 'kappa',
+          'lambda', 'mu', 'nu', 'xi', 'omicron', 'pi', 'varpi',
+          'rho', 'varrho', 'sigma', 'varsigma', 'tau', 'upsilon',
+          'phi', 'varphi', 'chi', 'psi', 'omega',
+          'Gamma', 'Delta', 'Theta', 'Lambda', 'Xi', 'Pi',
+          'Sigma', 'Upsilon', 'Phi', 'Psi', 'Omega'
+        ]);
+
+        this.symbols = {
+          'infty': '\\infty',
+          'inf': '\\infty',
+          'pm': '\\pm',
+          'mp': '\\mp',
+          'times': '\\times',
+          'div': '\\div',
+          'cdot': '\\cdot',
+          'approx': '\\approx',
+          'neq': '\\neq',
+          'leq': '\\le',
+          'geq': '\\ge',
+          'forall': '\\forall',
+          'exists': '\\exists',
+          'partial': '\\partial',
+          'nabla': '\\nabla',
+          'therefore': '\\therefore',
+          'because': '\\because'
+        };
+      }
+
+      convert(input, options = {}) {
+        const {
+          fracMode = 'standard', // 'standard' | 'line' | 'slash'
+          multMode = 'times'     // 'times' | 'cdot' | 'implicit'
+        } = options;
+
+        if (!input || !input.trim()) return '';
+
+        // Convert line-by-line so multi-line equations stay clean
+        const lines = input.split('\n');
+        const convertedLines = lines.map(line => this.convertLine(line, { fracMode, multMode }));
+        return convertedLines.join(' \\\\\n');
+      }
+
+      convertLine(rawLine, options) {
+        let str = rawLine.trim();
+        if (!str) return '';
+
+        // Normalize full-width characters users might accidentally type in Japanese IME
+        str = this.normalizeFullWidth(str);
+
+        // If "line" fraction mode is chosen, split top-level '/' across the line
+        if (options.fracMode === 'line') {
+          const topSlashIdx = this.findTopLevelChar(str, '/');
+          if (topSlashIdx !== -1) {
+            const num = str.slice(0, topSlashIdx).trim();
+            const den = str.slice(topSlashIdx + 1).trim();
+            const convNum = this.convertLine(num, { ...options, fracMode: 'standard' });
+            const convDen = this.convertLine(den, { ...options, fracMode: 'standard' });
+            return `\\frac{${convNum}}{${convDen}}`;
+          }
+        }
+
+        // Tokenize and build AST / structured tokens
+        const tokens = this.tokenize(str);
+        const processed = this.parseSequence(tokens, options);
+        return processed;
+      }
+
+      normalizeFullWidth(s) {
+        return s
+          .replace(/[！-～]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+          .replace(/　/g, ' ')
+          .replace(/×/g, '*')
+          .replace(/÷/g, '/')
+          .replace(/−/g, '-')
+          .replace(/＋/g, '+')
+          .replace(/＝/g, '=')
+          .replace(/（/g, '(')
+          .replace(/）/g, ')')
+          .replace(/｛/g, '{')
+          .replace(/｝/g, '}')
+          .replace(/［/g, '[')
+          .replace(/］/g, ']')
+          .replace(/√/g, 'sqrt');
+      }
+
+      findTopLevelChar(str, target) {
+        let depth = 0;
+        for (let i = 0; i < str.length; i++) {
+          const c = str[i];
+          if (c === '(' || c === '{' || c === '[') depth++;
+          else if (c === ')' || c === '}' || c === ']') depth--;
+          else if (c === target && depth === 0) return i;
+        }
+        return -1;
+      }
+
+      tokenize(str) {
+        const tokens = [];
+        let i = 0;
+
+        while (i < str.length) {
+          const ch = str[i];
+
+          // Whitespace
+          if (/\s/.test(ch)) {
+            tokens.push({ type: 'space', value: ch });
+            i++;
+            continue;
+          }
+
+          // Multi-character operators
+          const twoChar = str.slice(i, i + 2);
+          if (['<=', '>=', '!=', '+-', '-+', '->', '=>', '<=', '=='].includes(twoChar)) {
+            tokens.push({ type: 'op', value: twoChar });
+            i += 2;
+            continue;
+          }
+
+          // Numbers (including decimals)
+          if (/[0-9]/.test(ch)) {
+            let num = '';
+            while (i < str.length && /[0-9.]/.test(str[i])) {
+              num += str[i++];
+            }
+            tokens.push({ type: 'number', value: num });
+            continue;
+          }
+
+          // Already escaped LaTeX command (e.g. \frac, \alpha)
+          if (ch === '\\') {
+            let cmd = '\\';
+            i++;
+            while (i < str.length && /[a-zA-Z]/.test(str[i])) {
+              cmd += str[i++];
+            }
+            tokens.push({ type: 'latex_cmd', value: cmd });
+            continue;
+          }
+
+          // Identifiers (letters: could be function name, Greek letter, or variables like "2a" -> "2", "a", or "dx")
+          if (/[a-zA-Z]/.test(ch)) {
+            let word = '';
+            while (i < str.length && /[a-zA-Z]/.test(str[i])) {
+              word += str[i++];
+            }
+            tokens.push({ type: 'word', value: word });
+            continue;
+          }
+
+          // Grouping delimiters
+          if (ch === '(' || ch === '{' || ch === '[') {
+            tokens.push({ type: 'lparen', value: ch });
+            i++;
+            continue;
+          }
+          if (ch === ')' || ch === '}' || ch === ']') {
+            tokens.push({ type: 'rparen', value: ch });
+            i++;
+            continue;
+          }
+
+          // Single character operators & punctuation
+          tokens.push({ type: 'op', value: ch });
+          i++;
+        }
+
+        return tokens;
+      }
+
+      parseSequence(tokens, options) {
+        // 1. Group parenthesized/braced expressions into tree nodes
+        let idx = 0;
+        const parseGroup = (closingChar = null) => {
+          const items = [];
+          while (idx < tokens.length) {
+            const tok = tokens[idx];
+            if (closingChar && tok.type === 'rparen' && tok.value === closingChar) {
+              idx++;
+              break;
+            }
+            if (tok.type === 'lparen') {
+              const openChar = tok.value;
+              const expectedClose = openChar === '(' ? ')' : openChar === '{' ? '}' : ']';
+              idx++;
+              const children = parseGroup(expectedClose);
+              items.push({ type: 'group', open: openChar, close: expectedClose, children });
+            } else {
+              items.push(tok);
+              idx++;
+            }
+          }
+          return items;
+        };
+
+        const nodes = parseGroup(null);
+        return this.renderNodes(nodes, options);
+      }
+
+      renderNodes(nodes, options) {
+        // Remove insignificant spaces around operators, keep spaces that separate words
+        const filtered = [];
+        for (let i = 0; i < nodes.length; i++) {
+          const n = nodes[i];
+          if (n.type === 'space') {
+            const prev = filtered[filtered.length - 1];
+            const next = nodes[i + 1];
+            // Keep space if needed between two words or after differential d
+            if (prev && next && prev.type === 'word' && next.type === 'word') {
+              filtered.push(n);
+            }
+            continue;
+          }
+          filtered.push(n);
+        }
+
+        // Convert individual atoms & function calls (like sqrt(...), root(3, x))
+        const atoms = [];
+        for (let i = 0; i < filtered.length; i++) {
+          const node = filtered[i];
+
+          // Handle sqrt(...) and cbrt(...) and root(n, x)
+          if (node.type === 'word' && (node.value === 'sqrt' || node.value === 'cbrt' || node.value === 'root')) {
+            const next = filtered[i + 1];
+            if (next && next.type === 'group') {
+              i++;
+              if (node.value === 'sqrt') {
+                const inner = this.renderNodes(next.children, options);
+                atoms.push({ kind: 'atom', tex: `\\sqrt{${inner}}`, isParen: false });
+              } else if (node.value === 'cbrt') {
+                const inner = this.renderNodes(next.children, options);
+                atoms.push({ kind: 'atom', tex: `\\sqrt[3]{${inner}}`, isParen: false });
+              } else if (node.value === 'root') {
+                // Split by comma at top level inside root(n, x)
+                const parts = this.splitGroupByComma(next.children);
+                if (parts.length >= 2) {
+                  const deg = this.renderNodes(parts[0], options);
+                  const rad = this.renderNodes(parts.slice(1).flat(), options);
+                  atoms.push({ kind: 'atom', tex: `\\sqrt[${deg}]{${rad}}`, isParen: false });
+                } else {
+                  const inner = this.renderNodes(next.children, options);
+                  atoms.push({ kind: 'atom', tex: `\\sqrt{${inner}}`, isParen: false });
+                }
+              }
+              continue;
+            }
+          }
+
+          // Handle known math functions: sin, cos, log, lim, etc.
+          if (node.type === 'word' && this.functions.has(node.value)) {
+            atoms.push({ kind: 'func', tex: `\\${node.value}` });
+            continue;
+          }
+
+          // Handle big operators: sum, int, prod
+          if (node.type === 'word' && this.bigOperators.has(node.value)) {
+            atoms.push({ kind: 'bigop', tex: `\\${node.value}` });
+            continue;
+          }
+
+          // Handle Greek letters
+          if (node.type === 'word' && this.greekLetters.has(node.value)) {
+            atoms.push({ kind: 'atom', tex: `\\${node.value}`, isParen: false });
+            continue;
+          }
+
+          // Handle named symbols (infty, pm, etc.)
+          if (node.type === 'word' && this.symbols[node.value]) {
+            atoms.push({ kind: 'atom', tex: this.symbols[node.value], isParen: false });
+            continue;
+          }
+
+          // Regular word (e.g., "a", "x", "dx", "abc")
+          if (node.type === 'word') {
+            atoms.push({ kind: 'atom', tex: node.value, isParen: false });
+            continue;
+          }
+
+          // Number
+          if (node.type === 'number') {
+            atoms.push({ kind: 'atom', tex: node.value, isParen: false });
+            continue;
+          }
+
+          // Raw LaTeX command
+          if (node.type === 'latex_cmd') {
+            atoms.push({ kind: 'atom', tex: node.value, isParen: false });
+            continue;
+          }
+
+          // Group: (...), {...}, [...]
+          if (node.type === 'group') {
+            const innerTex = this.renderNodes(node.children, options);
+            if (node.open === '(') {
+              atoms.push({
+                kind: 'atom',
+                tex: `(${innerTex})`,
+                innerTex: innerTex,
+                isParen: true
+              });
+            } else if (node.open === '{') {
+              atoms.push({
+                kind: 'atom',
+                tex: `{${innerTex}}`,
+                innerTex: innerTex,
+                isBraced: true
+              });
+            } else if (node.open === '[') {
+              atoms.push({
+                kind: 'atom',
+                tex: `[${innerTex}]`,
+                innerTex: innerTex,
+                isBracket: true
+              });
+            }
+            continue;
+          }
+
+          // Space
+          if (node.type === 'space') {
+            atoms.push({ kind: 'space', tex: ' ' });
+            continue;
+          }
+
+          // Operators
+          if (node.type === 'op') {
+            atoms.push({ kind: 'op', value: node.value });
+          }
+        }
+
+        // 2. Bind superscripts (^) and subscripts (_) tightly to preceding atom/operator
+        const boundAtoms = [];
+        for (let i = 0; i < atoms.length; i++) {
+          const curr = atoms[i];
+          if (curr.kind === 'op' && (curr.value === '^' || curr.value === '_')) {
+            const prev = boundAtoms[boundAtoms.length - 1];
+            const next = atoms[i + 1];
+            if (prev && next) {
+              i++;
+              let expContent = next.tex;
+              // Strip outer parentheses or braces if user wrote x^(n+1) or x^{n+1} -> x^{n+1}
+              if (next.isParen || next.isBraced) {
+                expContent = next.innerTex;
+              }
+              prev.tex = `${prev.tex}${curr.value}{${expContent}}`;
+              // Once attached, it's no longer just a bare parenthesized group
+              prev.isParen = false;
+              continue;
+            }
+          }
+          boundAtoms.push(curr);
+        }
+
+        // 3. Handle implicit multiplication sequences (e.g., "2a", "12a", "2(x+1)")
+        // Combine adjacent multiplicative atoms into single multiplicative terms so "2a/3" -> "\frac{2a}{3}"
+        // while keeping "+" and "-" as term boundaries so "12a+18/a" -> "12a+\frac{18}{a}"!
+        const terms = [];
+        for (let i = 0; i < boundAtoms.length; i++) {
+          const curr = boundAtoms[i];
+          const prev = terms[terms.length - 1];
+
+          const isMulItem = (item) => item && (item.kind === 'atom' || item.kind === 'func');
+
+          if (prev && isMulItem(prev) && isMulItem(curr)) {
+            // Merge adjacent multiplicative items (like "2" and "a^{2}", or "\sin" and "(x)")
+            // If prev is a function like \sin and curr is a bare word like x, add space: \sin x
+            const needsSpace = prev.kind === 'func' && !curr.isParen && !curr.isBracket && /^[a-zA-Z]/.test(curr.tex);
+            prev.tex = prev.tex + (needsSpace ? ' ' : '') + curr.tex;
+            prev.isParen = false;
+          } else {
+            terms.push(curr);
+          }
+        }
+
+        // 4. Handle fractions ('/')
+        const afterFracs = [];
+        for (let i = 0; i < terms.length; i++) {
+          const curr = terms[i];
+          if (curr.kind === 'op' && curr.value === '/' && options.fracMode !== 'slash') {
+            const num = afterFracs.pop();
+            const den = terms[i + 1];
+            if (num && den) {
+              i++;
+              const numTex = num.isParen ? num.innerTex : num.tex;
+              const denTex = den.isParen ? den.innerTex : den.tex;
+              afterFracs.push({
+                kind: 'atom',
+                tex: `\\frac{${numTex}}{${denTex}}`,
+                isParen: false
+              });
+              continue;
+            }
+          }
+          afterFracs.push(curr);
+        }
+
+        // 5. Render final string with operator replacements
+        return afterFracs.map((item, idx) => {
+          if (item.kind === 'op') {
+            return this.formatOperator(item.value, options, afterFracs[idx - 1], afterFracs[idx + 1]);
+          }
+          if (item.kind === 'bigop') {
+            return `${item.tex} `;
+          }
+          return item.tex;
+        }).join('');
+      }
+
+      splitGroupByComma(children) {
+        const result = [[]];
+        for (const child of children) {
+          if (child.type === 'op' && child.value === ',') {
+            result.push([]);
+          } else {
+            result[result.length - 1].push(child);
+          }
+        }
+        return result;
+      }
+
+      formatOperator(op, options, prev, next) {
+        switch (op) {
+          case '*':
+            if (options.multMode === 'times') return ' \\times ';
+            if (options.multMode === 'cdot') return ' \\cdot ';
+            return '';
+          case '<=':
+            return ' \\le ';
+          case '>=':
+            return ' \\ge ';
+          case '!=':
+            return ' \\neq ';
+          case '+-':
+            return ' \\pm ';
+          case '-+':
+            return ' \\mp ';
+          case '->':
+            return ' \\to ';
+          case '=>':
+            return ' \\Rightarrow ';
+          case '==':
+            return ' \\equiv ';
+          case '~':
+            return ' \\sim ';
+          default:
+            return op;
+        }
+      }
+    }
+
+    // --- UI Controller ---
+    document.addEventListener('DOMContentLoaded', () => {
+      const converter = new MathToLatexConverter();
+
+      const mathInput = document.getElementById('mathInput');
+      const latexOutput = document.getElementById('latexOutput');
+      const mathPreview = document.getElementById('mathPreview');
+      const fracModeSelect = document.getElementById('fracMode');
+      const multModeSelect = document.getElementById('multMode');
+      const copyBtn = document.getElementById('copyBtn');
+      const copyToast = document.getElementById('copyToast');
+      const clearBtn = document.getElementById('clearBtn');
+      const wrapButtons = document.querySelectorAll('.wrap-btn');
+      const exampleChipsContainer = document.getElementById('exampleChips');
+      const quickButtonsContainer = document.getElementById('quickButtons');
+
+      let currentWrap = 'raw'; // 'raw' | 'inline' | 'block'
+
+      // Sample Expressions
+      const examples = [
+        { label: '質問の例 (分数入り多項式)', expr: '2a^2-2a^2+12a+18/a-(a+3)' },
+        { label: '分数式', expr: '(x+1)/(x-1)' },
+        { label: '2次方程式の解の公式', expr: 'x = (-b +- sqrt(b^2 - 4ac))/(2a)' },
+        { label: '三平方の定理・ルート', expr: 'c = sqrt(a^2 + b^2)' },
+        { label: '定積分', expr: 'int_0^1 x^2 dx = 1/3' },
+        { label: '無限級数 (バーゼル問題)', expr: 'sum_{n=1}^infty 1/n^2 = pi^2/6' },
+        { label: '三角関数', expr: 'sin^2(theta) + cos^2(theta) = 1' }
+      ];
+
+      // Quick Insert Buttons
+      const quickInserts = [
+        { label: '分数 ( )/( )', insert: '()/()' },
+        { label: '累乗 ^2', insert: '^2' },
+        { label: '平方根 sqrt()', insert: 'sqrt()' },
+        { label: '掛け算 *', insert: '*' },
+        { label: '± (+-)', insert: '+-' },
+        { label: '≤ (<=)', insert: '<=' },
+        { label: '≥ (>=)', insert: '>=' },
+        { label: 'π (pi)', insert: 'pi' },
+        { label: 'θ (theta)', insert: 'theta' },
+        { label: '∞ (infty)', insert: 'infty' }
+      ];
+
+      // Render Example Chips
+      examples.forEach(item => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-slate-100 hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 border border-slate-200 hover:border-indigo-200 transition-all cursor-pointer';
+        btn.innerHTML = `<span class="text-slate-400 font-sans">${item.label}:</span> <code class="font-mono font-semibold">${item.expr}</code>`;
+        btn.addEventListener('click', () => {
+          mathInput.value = item.expr;
+          updateAll();
+          mathInput.focus();
+        });
+        exampleChipsContainer.appendChild(btn);
+      });
+
+      // Render Quick Insert Toolbar
+      quickInserts.forEach(item => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = item.label;
+        btn.className = 'px-2 py-1 rounded-lg text-xs font-mono bg-white hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 border border-slate-200 shadow-2xs transition cursor-pointer';
+        btn.addEventListener('click', () => {
+          insertAtCursor(mathInput, item.insert);
+          updateAll();
+        });
+        quickButtonsContainer.appendChild(btn);
+      });
+
+      function insertAtCursor(textarea, text) {
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const val = textarea.value;
+        textarea.value = val.slice(0, start) + text + val.slice(end);
+        // Place cursor inside parentheses if ends with ()
+        const cursorOffset = text.endsWith('()') ? text.length - 1 : text.length;
+        textarea.selectionStart = textarea.selectionEnd = start + cursorOffset;
+        textarea.focus();
+      }
+
+      function formatWrappedLatex(rawTex, wrapType) {
+        if (!rawTex) return '';
+        if (wrapType === 'inline') return `$${rawTex}$`;
+        if (wrapType === 'block') return `$$\n${rawTex}\n$$`;
+        return rawTex;
+      }
+
+      function updateAll() {
+        const rawText = mathInput.value;
+        const options = {
+          fracMode: fracModeSelect.value,
+          multMode: multModeSelect.value
+        };
+
+        const rawLatex = converter.convert(rawText, options);
+        latexOutput.value = formatWrappedLatex(rawLatex, currentWrap);
+
+        // Render KaTeX preview
+        if (!rawLatex.trim()) {
+          mathPreview.innerHTML = '<span class="text-sm text-slate-400">左のボックスに数式を入力するとここにプレビューが表示されます</span>';
+          return;
+        }
+
+        if (window.katex) {
+          try {
+            window.katex.render(rawLatex, mathPreview, {
+              displayMode: true,
+              throwOnError: false,
+              errorColor: '#e11d48'
+            });
+          } catch (err) {
+            mathPreview.innerHTML = `<span class="text-xs text-rose-500 font-mono">${err.message}</span>`;
+          }
+        } else {
+          // Retry shortly if KaTeX deferred script is still loading
+          setTimeout(updateAll, 150);
+        }
+      }
+
+      // Wrap Toggle Buttons
+      wrapButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+          currentWrap = btn.dataset.wrap;
+          wrapButtons.forEach(b => {
+            if (b === btn) {
+              b.className = 'wrap-btn px-2.5 py-1 rounded-md bg-white text-slate-900 shadow-sm transition';
+            } else {
+              b.className = 'wrap-btn px-2.5 py-1 rounded-md text-slate-600 hover:text-slate-900 transition';
+            }
+          });
+          updateAll();
+        });
+      });
+
+      // Copy Button Handler (using execCommand fallback for iframe compatibility)
+      copyBtn.addEventListener('click', () => {
+        if (!latexOutput.value) return;
+        latexOutput.select();
+        latexOutput.setSelectionRange(0, 99999);
+        try {
+          document.execCommand('copy');
+          copyToast.classList.remove('opacity-0');
+          setTimeout(() => {
+            copyToast.classList.add('opacity-0');
+          }, 2200);
+        } catch (e) {
+          console.error('Copy failed', e);
+        }
+        window.getSelection().removeAllRanges();
+      });
+
+      // Clear Button
+      clearBtn.addEventListener('click', () => {
+        mathInput.value = '';
+        updateAll();
+        mathInput.focus();
+      });
+
+      // Event Listeners for Live Updates
+      mathInput.addEventListener('input', updateAll);
+      fracModeSelect.addEventListener('change', updateAll);
+      multModeSelect.addEventListener('change', updateAll);
+
+      // Initial Render
+      updateAll();
+    });
+  </script>
+</body>
+</html>
